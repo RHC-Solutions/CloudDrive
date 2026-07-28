@@ -41,7 +41,7 @@ catch (UnauthorizedAccessException)
 {
     Console.Error.WriteLine(
         $"CloudDrive cannot write to {AppPaths.MachineDir}. Run this elevated, or install the service "
-        + "with 'clouddrive service install' from an elevated prompt.");
+        + "with 'cdrive service install' from an elevated prompt.");
     return 1;
 }
 

@@ -73,7 +73,7 @@ Name: "{autodesktop}\{#AppName}";     Filename: "{app}\{#AppExe}"; Tasks: deskto
 Filename: "msiexec.exe"; Parameters: "/i ""{tmp}\winfsp.msi"" /qn /norestart"; \
   StatusMsg: "Installing WinFsp..."; Flags: waituntilterminated; Check: NeedsWinFsp
 
-Filename: "{app}\clouddrive.exe"; Parameters: "service install"; \
+Filename: "{app}\cdrive.exe"; Parameters: "service install"; \
   StatusMsg: "Registering the CloudDrive service..."; Flags: runhidden waituntilterminated; Tasks: service
 
 ; Launching the tray app is skipped in silent mode, which is how the in-app updater runs this — a
@@ -82,7 +82,7 @@ Filename: "{app}\{#AppExe}"; Description: "Start CloudDrive"; \
   Flags: nowait postinstall skipifsilent
 
 [UninstallRun]
-Filename: "{app}\clouddrive.exe"; Parameters: "service uninstall"; \
+Filename: "{app}\cdrive.exe"; Parameters: "service uninstall"; \
   Flags: runhidden waituntilterminated; RunOnceId: "RemoveService"
 
 [Registry]
@@ -135,7 +135,7 @@ begin
       { Delegated to the CLI rather than done with [Registry], because appending to PATH safely
         means reading the raw REG_EXPAND_SZ value without expanding it — writing back an expanded
         copy would bake %SystemRoot% into the machine PATH permanently. }
-      Exec(ExpandConstant('{app}\clouddrive.exe'), 'tools path --register', '',
+      Exec(ExpandConstant('{app}\cdrive.exe'), 'tools path --register', '',
            SW_HIDE, ewWaitUntilTerminated, ResultCode);
     end;
 
@@ -154,7 +154,7 @@ var
 begin
   if CurUninstallStep = usUninstall then
   begin
-    Exec(ExpandConstant('{app}\clouddrive.exe'), 'tools path --unregister', '',
+    Exec(ExpandConstant('{app}\cdrive.exe'), 'tools path --unregister', '',
          SW_HIDE, ewWaitUntilTerminated, ResultCode);
   end;
 

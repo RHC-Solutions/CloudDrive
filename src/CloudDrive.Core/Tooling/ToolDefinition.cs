@@ -62,6 +62,29 @@ public sealed record ToolDefinition
     /// runs after an update rather than trusting that the download succeeded.
     /// </summary>
     public string? VersionArgument { get; init; }
+
+    /// <summary>
+    /// The vendor's own checksum file in the same release, if it publishes one — for rclone,
+    /// <c>SHA256SUMS</c>.
+    ///
+    /// This is a second, independent attestation alongside the digest GitHub reports through its API.
+    /// The API digest proves the bytes match what GitHub is serving; the vendor's file proves they
+    /// match what the vendor built. Both are checked when both exist.
+    /// </summary>
+    public string? ChecksumAssetName { get; init; }
+
+    /// <summary>
+    /// Refuse this tool unless it carries a valid Authenticode signature.
+    ///
+    /// <para><b>Not every vendor signs, and pretending otherwise breaks the updater.</b> rclone ships
+    /// unsigned Windows binaries and publishes SHA-256 sums instead; requiring a signature would
+    /// reject the one tool CloudDrive cannot work without. WinFsp does sign, and it installs a
+    /// kernel-mode driver, so it is held to the higher bar.</para>
+    ///
+    /// <para>When this is false a signature is still validated <i>if present</i> — an invalid
+    /// signature is always fatal. What changes is whether its absence is.</para>
+    /// </summary>
+    public bool RequiresSignature { get; init; }
 }
 
 /// <summary>The tools CloudDrive manages.</summary>
@@ -87,6 +110,10 @@ public static class ToolCatalog
             ExecutableName = "rclone.exe",
             Required = true,
             VersionArgument = "version",
+            ChecksumAssetName = "SHA256SUMS",
+            // rclone does not Authenticode-sign its Windows builds; it publishes SHA256SUMS. The
+            // digest check is the real guarantee here.
+            RequiresSignature = false,
         },
         new ToolDefinition
         {
@@ -97,8 +124,9 @@ public static class ToolCatalog
             AssetNameContains = ["winfsp", ".msi"],
             PackageKind = ToolPackageKind.Installer,
             // A kernel driver, so it is installed rather than dropped in a folder, and it never
-            // goes on PATH.
+            // goes on PATH. A driver that Windows will load into the kernel gets the strict bar.
             Required = true,
+            RequiresSignature = true,
         },
         new ToolDefinition
         {
@@ -109,6 +137,7 @@ public static class ToolCatalog
             AssetNameContains = ["sshfs-win", "x64", ".msi"],
             PackageKind = ToolPackageKind.Installer,
             Required = false,
+            RequiresSignature = true,
         },
     ];
 
@@ -146,10 +175,19 @@ public sealed class InstalledTool
 }
 
 /// <summary>A newer version found at the vendor.</summary>
+/// <param name="ExpectedSha256">
+/// The digest GitHub reports for this asset, lower-case hex with no prefix, or null when the API did
+/// not supply one. Checked against the downloaded bytes before anything is installed.
+/// </param>
+/// <param name="ChecksumUrl">
+/// The vendor's own checksum file in the same release, when it publishes one.
+/// </param>
 public sealed record ToolUpdate(
     ToolDefinition Tool,
     string AvailableVersion,
     string? InstalledVersion,
     string DownloadUrl,
     long SizeBytes,
-    string? ReleaseNotesUrl);
+    string? ReleaseNotesUrl,
+    string? ExpectedSha256 = null,
+    string? ChecksumUrl = null);

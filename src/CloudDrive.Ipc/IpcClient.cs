@@ -67,7 +67,7 @@ public sealed class IpcClient : IAsyncDisposable
             pipe.Dispose();
             throw new ServiceUnavailableException(
                 "The CloudDrive service is not responding. It may be stopped — check Services, or run "
-                + "'clouddrive service start' from an elevated prompt.", ex);
+                + "'cdrive service start' from an elevated prompt.", ex);
         }
 
         _pipe = pipe;

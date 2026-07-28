@@ -133,6 +133,30 @@
                                     Style="{StaticResource CD.Button.Accent}"/>
                         </StackPanel>
                     </Border>
+
+                    <Expander Header="Advanced — your own app registration" Margin="0,12,0,0">
+                        <StackPanel Margin="0,8,0,0">
+                            <TextBlock Style="{StaticResource CD.Subtitle}" TextWrapping="Wrap"
+                                       Text="Leave these blank to use whatever this installation is configured with. Fill them in if your organisation blocks third-party applications, or if you would rather not depend on a shared registration."/>
+
+                            <TextBlock Text="Client ID" Style="{StaticResource CD.SectionLabel}"/>
+                            <TextBox x:Name="ClientIdBox"/>
+                            <TextBlock x:Name="ClientIdHint" Style="{StaticResource CD.Subtitle}"
+                                       TextWrapping="Wrap" Margin="2,4,0,0"/>
+
+                            <StackPanel x:Name="TenantPanel">
+                                <TextBlock Text="Tenant" Style="{StaticResource CD.SectionLabel}"/>
+                                <TextBox x:Name="TenantBox"
+                                         ui:ControlHelper.PlaceholderText="common"/>
+                                <TextBlock Style="{StaticResource CD.Subtitle}" TextWrapping="Wrap"
+                                           Margin="2,4,0,0"
+                                           Text="'common' accepts personal and work accounts. Use a tenant ID to restrict sign-in to one organisation."/>
+                            </StackPanel>
+
+                            <Button Content="Open the registration page" Click="OnOpenRegistration"
+                                    HorizontalAlignment="Left" Margin="0,12,0,0"/>
+                        </StackPanel>
+                    </Expander>
                 </StackPanel>
 
                 <!-- Protocol, for a provider that speaks more than one -->

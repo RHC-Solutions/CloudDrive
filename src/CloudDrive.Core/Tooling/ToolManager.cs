@@ -137,7 +137,23 @@ public sealed class ToolManager
         var installed = state.Installed.GetValueOrDefault(tool.Id)?.Version;
         if (installed is not null && !IsNewer(release.Version, installed)) return null;
 
-        return new ToolUpdate(tool, release.Version, installed, asset.DownloadUrl, asset.Size, release.HtmlUrl);
+        // GitHub reports "sha256:<hex>"; strip the algorithm prefix so the value compares directly
+        // against a computed hash.
+        var digest = asset.Digest;
+        if (digest is not null && digest.StartsWith("sha256:", StringComparison.OrdinalIgnoreCase))
+            digest = digest["sha256:".Length..];
+        else
+            digest = null; // an unrecognised algorithm is worse than none: do not pretend to check it
+
+        var checksumUrl = tool.ChecksumAssetName is null
+            ? null
+            : release.Assets
+                .FirstOrDefault(a => string.Equals(a.Name, tool.ChecksumAssetName, StringComparison.OrdinalIgnoreCase))
+                ?.DownloadUrl;
+
+        return new ToolUpdate(
+            tool, release.Version, installed, asset.DownloadUrl, asset.Size, release.HtmlUrl,
+            digest, checksumUrl);
     }
 
     /// <summary>
@@ -196,6 +212,7 @@ public sealed class ToolManager
 
         var sha = await Sha256Async(downloaded, ct).ConfigureAwait(false);
         _log?.Invoke($"{assetName} SHA-256 {sha}");
+        await VerifyDownloadAsync(update, downloaded, assetName, sha, ct).ConfigureAwait(false);
 
         var target = Path.Combine(AppPaths.ToolsDir, tool.Id, update.AvailableVersion);
 
@@ -218,9 +235,14 @@ public sealed class ToolManager
         if (tool.ExecutableName is not null)
         {
             var exe = Path.Combine(target, tool.ExecutableName);
-            RequireTrustedExecutable(exe, tool);
+            VerifySignature(exe, tool);
             VerifyRuns(exe, tool);
             PublishToBin(exe);
+        }
+        else if (tool.RequiresSignature)
+        {
+            // An installer is never unpacked, so the signature is checked on the package itself.
+            VerifySignature(Path.Combine(target, assetName), tool);
         }
 
         var state = _state.Load();
@@ -276,55 +298,170 @@ public sealed class ToolManager
     }
 
     /// <summary>
-    /// Refuses an executable that is not validly Authenticode-signed.
+    /// Proves the downloaded bytes are the ones the vendor published, before anything is unpacked.
     ///
-    /// The digest check already proves the bytes match what GitHub served; this proves the vendor
-    /// produced them. Both matter, because the first would happily accept a malicious release
-    /// published to a compromised repository.
+    /// <para>This is the real gate, and it is checksum-based rather than signature-based because that
+    /// is what these vendors actually publish. rclone ships <b>unsigned</b> Windows binaries with a
+    /// <c>SHA256SUMS</c> file alongside them; requiring an Authenticode signature would reject the one
+    /// tool CloudDrive cannot function without. So two independent attestations are used where they
+    /// exist:</para>
+    ///
+    /// <list type="number">
+    ///   <item>the digest GitHub reports for the asset through its API — proves the bytes match what
+    ///         GitHub is serving, and arrives over a separate connection from the download;</item>
+    ///   <item>the vendor's own checksum file in the same release — proves they match what the vendor
+    ///         built, which the first check alone would miss if the release itself were replaced.</item>
+    /// </list>
+    ///
+    /// <para>A mismatch on either is fatal. Having <i>neither</i> is also fatal: this code puts an
+    /// executable on the system PATH, and installing bytes that nothing has vouched for is not
+    /// something to do quietly.</para>
     /// </summary>
-    private static void RequireTrustedExecutable(string exePath, ToolDefinition tool)
+    private async Task VerifyDownloadAsync(
+        ToolUpdate update, string downloadedPath, string assetName, string actualSha256, CancellationToken ct)
     {
-        if (!File.Exists(exePath))
-            throw new FileNotFoundException($"{tool.DisplayName} did not unpack as expected.", exePath);
+        var verifiedBy = new List<string>();
 
+        if (update.ExpectedSha256 is { } expected)
+        {
+            if (!string.Equals(expected, actualSha256, StringComparison.OrdinalIgnoreCase))
+            {
+                TryDelete(downloadedPath);
+                throw new InvalidOperationException(
+                    $"{assetName} does not match the digest GitHub published for it "
+                    + $"(expected {expected}, got {actualSha256}). The download was discarded.");
+            }
+            verifiedBy.Add("GitHub asset digest");
+        }
+
+        if (update.ChecksumUrl is { } checksumUrl)
+        {
+            var published = await TryReadPublishedChecksumAsync(checksumUrl, assetName, ct).ConfigureAwait(false);
+            if (published is not null)
+            {
+                if (!string.Equals(published, actualSha256, StringComparison.OrdinalIgnoreCase))
+                {
+                    TryDelete(downloadedPath);
+                    throw new InvalidOperationException(
+                        $"{assetName} does not match the checksum in {update.Tool.ChecksumAssetName} "
+                        + $"(expected {published}, got {actualSha256}). The download was discarded.");
+                }
+                verifiedBy.Add(update.Tool.ChecksumAssetName!);
+            }
+        }
+
+        if (verifiedBy.Count == 0)
+        {
+            TryDelete(downloadedPath);
+            throw new InvalidOperationException(
+                $"{update.Tool.DisplayName} {update.AvailableVersion} published no checksum CloudDrive "
+                + "could verify, so the download was discarded.");
+        }
+
+        _log?.Invoke($"{assetName} verified against {string.Join(" and ", verifiedBy)}.");
+    }
+
+    /// <summary>
+    /// Reads one entry out of a vendor checksum file.
+    ///
+    /// The format is the <c>sha256sum</c> convention — hex, whitespace, filename, one per line, with
+    /// an optional <c>*</c> marking binary mode. Returns null when the file cannot be fetched or does
+    /// not mention this asset, which is a soft miss: the GitHub digest may still have verified it, and
+    /// <see cref="VerifyDownloadAsync"/> fails only when nothing did.
+    /// </summary>
+    private async Task<string?> TryReadPublishedChecksumAsync(
+        string checksumUrl, string assetName, CancellationToken ct)
+    {
+        try
+        {
+            var text = await _releases.DownloadTextAsync(checksumUrl, ct).ConfigureAwait(false);
+
+            foreach (var line in text.Split(
+                         '\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                var parts = line.Split([' ', '\t'], StringSplitOptions.RemoveEmptyEntries);
+                if (parts.Length < 2) continue;
+
+                var name = parts[^1].TrimStart('*');
+                if (string.Equals(name, assetName, StringComparison.OrdinalIgnoreCase))
+                    return parts[0].Trim().ToLowerInvariant();
+            }
+
+            _log?.Invoke($"{assetName} is not listed in the vendor's checksum file.");
+            return null;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _log?.Invoke($"Could not read the vendor checksum file: {ex.Message}");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Validates an Authenticode signature.
+    ///
+    /// An <i>invalid</i> signature is always fatal — that means a tampered binary or a broken chain. A
+    /// <i>missing</i> one is fatal only when the tool declares
+    /// <see cref="ToolDefinition.RequiresSignature"/>, which WinFsp does because Windows loads it into
+    /// the kernel and rclone does not because it is not signed at all. Either way the bytes have
+    /// already been checksum-verified by the time this runs.
+    /// </summary>
+    private void VerifySignature(string path, ToolDefinition tool)
+    {
+        if (!File.Exists(path))
+            throw new FileNotFoundException($"{tool.DisplayName} did not unpack as expected.", path);
+
+        byte[] signerBytes;
         try
         {
             // CreateFromSignedFile carries SYSLIB0057, which steers callers to X509CertificateLoader.
-            // That guidance does not apply here: the loader reads certificate *files*, and there is
-            // no managed replacement for extracting the Authenticode signer out of a PE. The
-            // deprecated concern is format-probing on untrusted certificate blobs; the result here is
+            // That guidance does not apply here: the loader reads certificate *files*, and there is no
+            // managed replacement for extracting the Authenticode signer out of a PE. The result is
             // immediately re-loaded through X509CertificateLoader and chain-validated below, so the
-            // legacy path is used only to locate the signer, never to decide whether to trust it.
+            // legacy path only locates the signer — it never decides whether to trust it.
 #pragma warning disable SYSLIB0057
-            var signerBytes = System.Security.Cryptography.X509Certificates.X509Certificate
-                .CreateFromSignedFile(exePath).GetRawCertData();
+            signerBytes = System.Security.Cryptography.X509Certificates.X509Certificate
+                .CreateFromSignedFile(path).GetRawCertData();
 #pragma warning restore SYSLIB0057
-
-            using var cert2 = System.Security.Cryptography.X509Certificates.X509CertificateLoader
-                .LoadCertificate(signerBytes);
-
-            var chain = new System.Security.Cryptography.X509Certificates.X509Chain();
-            chain.ChainPolicy.RevocationMode = System.Security.Cryptography.X509Certificates.X509RevocationMode.Online;
-            // A machine with no internet cannot check revocation lists, and failing the install for
-            // that would make CloudDrive unusable exactly where it is most needed.
-            chain.ChainPolicy.RevocationFlag = System.Security.Cryptography.X509Certificates.X509RevocationFlag.ExcludeRoot;
-            chain.ChainPolicy.VerificationFlags =
-                System.Security.Cryptography.X509Certificates.X509VerificationFlags.IgnoreCertificateAuthorityRevocationUnknown
-                | System.Security.Cryptography.X509Certificates.X509VerificationFlags.IgnoreEndRevocationUnknown;
-
-            if (!chain.Build(cert2))
-            {
-                var reasons = string.Join(", ", chain.ChainStatus.Select(s => s.StatusInformation.Trim()));
-                throw new InvalidOperationException(
-                    $"The {tool.DisplayName} download is signed, but the signature does not validate: {reasons}");
-            }
         }
         catch (CryptographicException)
         {
-            throw new InvalidOperationException(
-                $"The {tool.DisplayName} download is not Authenticode-signed. CloudDrive will not put an "
-                + "unsigned executable on the system PATH.");
+            if (tool.RequiresSignature)
+            {
+                throw new InvalidOperationException(
+                    $"{tool.DisplayName} is not Authenticode-signed, and it must be — it installs a "
+                    + "driver that Windows loads into the kernel.");
+            }
+
+            // Said out loud rather than passed over silently: this vendor genuinely does not sign, and
+            // an administrator reading the log should know which guarantee is and is not in force.
+            _log?.Invoke(
+                $"{tool.DisplayName} is not Authenticode-signed (this vendor does not sign its Windows "
+                + "builds). It was verified by checksum instead.");
+            return;
         }
+
+        using var certificate = System.Security.Cryptography.X509Certificates.X509CertificateLoader
+            .LoadCertificate(signerBytes);
+
+        using var chain = new System.Security.Cryptography.X509Certificates.X509Chain();
+        chain.ChainPolicy.RevocationMode = System.Security.Cryptography.X509Certificates.X509RevocationMode.Online;
+        chain.ChainPolicy.RevocationFlag = System.Security.Cryptography.X509Certificates.X509RevocationFlag.ExcludeRoot;
+        // A machine with no internet cannot fetch a CRL, and failing an install for that would break
+        // CloudDrive exactly where it is most needed. An unknown revocation status is tolerated; a
+        // known-bad chain is not.
+        chain.ChainPolicy.VerificationFlags =
+            System.Security.Cryptography.X509Certificates.X509VerificationFlags.IgnoreCertificateAuthorityRevocationUnknown
+            | System.Security.Cryptography.X509Certificates.X509VerificationFlags.IgnoreEndRevocationUnknown;
+
+        if (!chain.Build(certificate))
+        {
+            var reasons = string.Join(", ", chain.ChainStatus.Select(s => s.StatusInformation.Trim()));
+            throw new InvalidOperationException(
+                $"{tool.DisplayName} is signed, but the signature does not validate: {reasons}");
+        }
+
+        _log?.Invoke($"{tool.DisplayName} signature valid — {certificate.Subject.Split(',')[0]}");
     }
 
     /// <summary>

@@ -171,5 +171,38 @@ public sealed class GitHubReleases : IDisposable
         File.Move(tmp, destination, overwrite: true);
     }
 
+    /// <summary>
+    /// Fetches a small text asset — a vendor's <c>SHA256SUMS</c> file — into memory.
+    ///
+    /// Size-capped, because this reads an untrusted URL into a string before anything has been
+    /// verified. A checksum file is a few kilobytes; anything approaching a megabyte is not one, and
+    /// buffering it would be a trivial way to exhaust memory on the machine doing the checking.
+    /// </summary>
+    public async Task<string> DownloadTextAsync(string url, CancellationToken ct = default)
+    {
+        const int maxBytes = 1024 * 1024;
+
+        using var response = await _http
+            .GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct)
+            .ConfigureAwait(false);
+        response.EnsureSuccessStatusCode();
+
+        if (response.Content.Headers.ContentLength is > maxBytes)
+            throw new InvalidOperationException($"'{url}' is larger than a checksum file should be.");
+
+        await using var stream = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+        var buffer = new byte[maxBytes];
+        var total = 0;
+
+        while (total < buffer.Length)
+        {
+            var read = await stream.ReadAsync(buffer.AsMemory(total), ct).ConfigureAwait(false);
+            if (read == 0) break;
+            total += read;
+        }
+
+        return System.Text.Encoding.UTF8.GetString(buffer, 0, total);
+    }
+
     public void Dispose() => _http.Dispose();
 }

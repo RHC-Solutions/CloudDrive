@@ -117,7 +117,7 @@ public partial class SettingsWindow : Window
 
     private void OnRollbackTool(object sender, RoutedEventArgs e) =>
         MessageBox.Show(
-            "Rolling a tool back is available from the command line: clouddrive tools rollback <name>.",
+            "Rolling a tool back is available from the command line: cdrive tools rollback <name>.",
             "CloudDrive", MessageBoxButton.OK, MessageBoxImage.Information);
 
     // ---------------------------------------------------------------- Alert targets -----------

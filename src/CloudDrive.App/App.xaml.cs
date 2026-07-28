@@ -52,7 +52,7 @@ public partial class App : Application
         {
             MessageBox.Show(
                 "This is Windows Server Core, which has no desktop shell, so the CloudDrive window "
-                + "cannot run here. Use the command line instead: clouddrive --help.",
+                + "cannot run here. Use the command line instead: cdrive --help.",
                 "CloudDrive", MessageBoxButton.OK, MessageBoxImage.Warning);
             Shutdown();
             return;

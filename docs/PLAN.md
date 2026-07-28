@@ -220,7 +220,7 @@ Two mechanisms, deliberately separate from the tool updater above.
 (default 6 hours, jittered so a fleet does not stampede), honouring ETags so an unchanged feed costs
 one 304. There is no push transport that survives NAT without a persistent outbound connection, so
 "push" here means the update arrives and applies without anyone asking — not that GitHub initiates
-it. A manual **Check now** and a CLI `clouddrive update --check` force an immediate poll.
+it. A manual **Check now** and a CLI `cdrive update --check` force an immediate poll.
 
 **Apply on idle.** An update is downloaded as soon as it is found and installed only when the machine
 is quiet, because applying one means dropping every mount. Quiet is all of:
@@ -247,7 +247,7 @@ src/CloudDrive.Notifications/  alert channels, routing, dedup, spool
 src/CloudDrive.Ipc/            named-pipe contracts shared by service, app and CLI
 src/CloudDrive.Service/        Windows service: owns state, mounts, alerts, serves the pipe
 src/CloudDrive.App/            WPF tray and management UI (pipe client)
-src/CloudDrive.Cli/            clouddrive.exe for Server Core and automation
+src/CloudDrive.Cli/            cdrive.exe for Server Core and automation
 src/CloudDrive.Tests/          xUnit
 tools/                         manifests describing vendor sources (binaries fetched, not committed)
 installer/                     Inno Setup
@@ -276,7 +276,7 @@ Bundled client IDs with a per-account override.
 release feed, vendor tool-update checks, and apply-on-idle. Alerts come first in this phase because
 the updater reports through them.
 
-**Phase 4 — CLI, installer, migration.** `clouddrive.exe`, Inno Setup packaging, WinFsp bootstrap,
+**Phase 4 — CLI, installer, migration.** `cdrive.exe`, Inno Setup packaging, WinFsp bootstrap,
 PATH registration, and an importer that reads existing WasabiDrive and HetznerDrive config so current
 users do not reconfigure by hand.
 

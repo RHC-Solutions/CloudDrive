@@ -16,6 +16,9 @@ tools/**/*.zip
 
 installer/output/
 
+# scripts\publish.ps1 output: a ~286 MB self-contained build, reproducible from source.
+publish/
+
 # Emitted only when EmitCompilerGeneratedFiles is turned on to inspect CsWin32 output.
 src/**/gen*/
 

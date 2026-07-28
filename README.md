@@ -161,7 +161,7 @@ src/CloudDrive.Notifications/  Telegram, Slack, email; routing, dedup, spool
 src/CloudDrive.Ipc/            named-pipe contracts, ACL'd server, client
 src/CloudDrive.Service/        the Windows service: owns state, mounts, alerts, serves the pipe
 src/CloudDrive.App/            WPF tray and management UI
-src/CloudDrive.Cli/            clouddrive.exe — Server Core and automation
+src/CloudDrive.Cli/            cdrive.exe — Server Core and automation
 src/CloudDrive.Tests/          xUnit
 ```
 
@@ -183,20 +183,20 @@ dotnet run   --project src\CloudDrive.App
 Then install the service, from an elevated prompt:
 
 ```powershell
-clouddrive service install
+cdrive service install
 ```
 
 ## Command line
 
 ```
-clouddrive status                  What is mounted right now
-clouddrive list [accounts]         Mappings, or accounts
-clouddrive mount <name|id>         Mount one mapping
-clouddrive unmount <name|id>       Unmount one mapping
-clouddrive service <verb>          install | uninstall | start | stop | restart | status
-clouddrive tools <verb>            list | check | install <id> | rollback <id> | path
-clouddrive update [check|install]  Look for a new release, or apply the pending one
-clouddrive info                    What this machine supports
+cdrive status                  What is mounted right now
+cdrive list [accounts]         Mappings, or accounts
+cdrive mount <name|id>         Mount one mapping
+cdrive unmount <name|id>       Unmount one mapping
+cdrive service <verb>          install | uninstall | start | stop | restart | status
+cdrive tools <verb>            list | check | install <id> | rollback <id> | path
+cdrive update [check|install]  Look for a new release, or apply the pending one
+cdrive info                    What this machine supports
 ```
 
 ## Where things live

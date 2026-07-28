@@ -1,6 +1,7 @@
 using System.Runtime.Versioning;
 using CloudDrive.Core.Models;
 using CloudDrive.Core.Mounting;
+using CloudDrive.Core.OAuth;
 using CloudDrive.Core.Stores;
 using CloudDrive.Notifications;
 using Microsoft.Extensions.Logging;
@@ -24,6 +25,8 @@ public sealed class MountReconciler : IAsyncDisposable
     private readonly ILogger _logger;
     private readonly MountManager? _mounts;
     private readonly string? _unavailableReason;
+    private readonly OAuthTokenService _tokens = new();
+    private readonly OAuthClientRegistry _oauthClients = new();
 
     /// <summary>What each mapping is currently mounted with, so a configuration edit is detectable.</summary>
     private readonly Dictionary<Guid, string> _applied = [];
@@ -190,6 +193,15 @@ public sealed class MountReconciler : IAsyncDisposable
             return;
         }
 
+        // An OAuth account needs a live access token before rclone is handed its config, because the
+        // token goes into that config. This is the whole reason a OneDrive mount can exist before
+        // anyone signs in: the interactive half happened once, and the service only refreshes.
+        if (account.Descriptor.IsOAuth
+            && !await TryRefreshTokenAsync(mapping, account, credentials, ct).ConfigureAwait(false))
+        {
+            return;
+        }
+
         try
         {
             _logger.LogInformation("Mounting '{Name}' at {MountPoint}.", mapping.Name, mapping.MountPoint);
@@ -225,6 +237,72 @@ public sealed class MountReconciler : IAsyncDisposable
             await ReportFailureOnceAsync(mapping, account, AlertKind.MountFailed,
                     $"'{mapping.Name}' failed to mount", ex.Message, ct)
                 .ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// Refreshes an OAuth account's access token, returning false when the mount must be abandoned.
+    ///
+    /// The distinction that matters is between a grant that is *gone* and a network that is merely
+    /// down. A revoked or expired grant is recorded on the account and alerted, because only a human
+    /// at a browser can fix it and retrying forever would just generate noise. Anything else is left
+    /// alone for the next reconcile to retry.
+    /// </summary>
+    private async Task<bool> TryRefreshTokenAsync(
+        Mapping mapping, Account account, Credentials credentials, CancellationToken ct)
+    {
+        try
+        {
+            var changed = await _tokens
+                .EnsureAccessTokenAsync(account, credentials, _oauthClients, ct)
+                .ConfigureAwait(false);
+
+            if (changed)
+            {
+                // Persist immediately. Providers may rotate the refresh token and revoke the old one,
+                // so losing the new value would lock this account out permanently.
+                _credentials.UpdateAccount(account.Id, stored =>
+                {
+                    stored.AccessToken = credentials.AccessToken;
+                    stored.AccessTokenExpiresUtc = credentials.AccessTokenExpiresUtc;
+                    stored.RefreshToken = credentials.RefreshToken;
+                });
+
+                _config.Mutate(document =>
+                {
+                    var stored = document.FindAccount(account.Id);
+                    if (stored is null) return;
+                    stored.TokenRefreshedUtc = DateTime.UtcNow;
+                    stored.ReauthRequiredReason = null;
+                });
+            }
+
+            return true;
+        }
+        catch (OAuthReauthRequiredException ex)
+        {
+            _logger.LogError("The {Provider} grant for '{Account}' is no longer valid: {Reason}",
+                account.Descriptor.DisplayName, account.Name, ex.Message);
+
+            // Recorded on the account so the UI badges it and the next reconcile skips straight to the
+            // reauth branch instead of hammering the token endpoint.
+            _config.Mutate(document =>
+            {
+                var stored = document.FindAccount(account.Id);
+                if (stored is not null) stored.ReauthRequiredReason = ex.Message;
+            });
+
+            await ReportFailureOnceAsync(mapping, account, AlertKind.ReauthRequired,
+                    $"'{account.Name}' needs to be signed in again",
+                    $"{account.Descriptor.DisplayName} rejected the stored sign-in: {ex.Message} "
+                    + "Open CloudDrive on a desktop session and authorise the account again.", ct)
+                .ConfigureAwait(false);
+            return false;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "Refreshing the token for '{Account}' failed; will retry.", account.Name);
+            return false;
         }
     }
 
@@ -295,6 +373,7 @@ public sealed class MountReconciler : IAsyncDisposable
             catch (Exception ex) { _logger.LogError(ex, "Unmounting everything on shutdown failed."); }
             await _mounts.DisposeAsync().ConfigureAwait(false);
         }
+        _tokens.Dispose();
         _gate.Dispose();
     }
 }

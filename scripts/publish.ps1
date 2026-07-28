@@ -32,6 +32,23 @@ $projects = @(
     'src\CloudDrive.Cli\CloudDrive.Cli.csproj'
 )
 
+# Assembly names must be distinct case-insensitively, because publishing several projects into one
+# directory on Windows means a collision silently overwrites one executable with another. This
+# already happened once: the CLI was called clouddrive.exe, which replaced the tray app's
+# CloudDrive.exe, and the only symptom was a missing GUI. Checked up front rather than left to a user.
+$assemblyNames = foreach ($project in $projects) {
+    [xml] $proj = Get-Content (Join-Path $root $project)
+    $name = $proj.Project.PropertyGroup.AssemblyName | Where-Object { $_ } | Select-Object -First 1
+    if (-not $name) { throw "$project does not set <AssemblyName>." }
+    $name
+}
+$collisions = $assemblyNames | Group-Object -Property { $_.ToLowerInvariant() } |
+    Where-Object { $_.Count -gt 1 }
+if ($collisions) {
+    throw ("Assembly names collide case-insensitively and would overwrite each other: " +
+           ($collisions.Group -join ', '))
+}
+
 foreach ($project in $projects) {
     $name = Split-Path $project -Leaf
     Write-Host "Publishing $name..."
@@ -66,7 +83,16 @@ if (Test-Path $rclone) {
 $icon = Join-Path $root 'src\CloudDrive.App\Assets\clouddrive.ico'
 if (Test-Path $icon) { Copy-Item $icon $Output -Force }
 
+# Confirm each expected executable actually survived the publish. A missing one here means something
+# overwrote it, which is not something to leave for a user to notice.
+$expected = @('CloudDrive.exe', 'CloudDrive.Service.exe', 'cdrive.exe')
+$missing = $expected | Where-Object { -not (Test-Path (Join-Path $Output $_)) }
+if ($missing) { throw "Publish is incomplete; these are missing: $($missing -join ', ')" }
+
 $size = [math]::Round(((Get-ChildItem $Output -Recurse | Measure-Object Length -Sum).Sum / 1MB), 1)
 Write-Host ''
 Write-Host "Published to $Output ($size MB)"
-Get-ChildItem $Output -Filter '*.exe' | ForEach-Object { Write-Host "  $($_.Name)" }
+foreach ($exe in $expected) {
+    $item = Get-Item (Join-Path $Output $exe)
+    Write-Host ("  {0,-24} {1,7:N1} MB" -f $item.Name, ($item.Length / 1MB))
+}

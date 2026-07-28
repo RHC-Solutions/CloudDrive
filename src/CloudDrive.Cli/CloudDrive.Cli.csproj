@@ -8,7 +8,13 @@
   <PropertyGroup>
     <TargetFramework>net10.0-windows</TargetFramework>
     <OutputType>Exe</OutputType>
-    <AssemblyName>clouddrive</AssemblyName>
+    <!--
+      'cdrive', not 'clouddrive'. Windows filenames are case-insensitive, so a CLI called
+      clouddrive.exe is the same file as the tray app's CloudDrive.exe — publishing both into one
+      directory silently overwrites the GUI with the console app, which is exactly what happened
+      before this was renamed. Short also matters for something typed at a prompt.
+    -->
+    <AssemblyName>cdrive</AssemblyName>
     <RootNamespace>CloudDrive.Cli</RootNamespace>
   </PropertyGroup>
 

@@ -4,6 +4,7 @@ using System.Windows;
 using System.Windows.Controls;
 using CloudDrive.App.Services;
 using CloudDrive.Core.Models;
+using CloudDrive.Core.OAuth;
 using CloudDrive.Core.Providers;
 
 namespace CloudDrive.App.Views;
@@ -20,6 +21,7 @@ namespace CloudDrive.App.Views;
 public partial class AccountEditWindow : Window
 {
     private readonly AppController _controller;
+    private readonly OAuthClientRegistry _clients = new();
     private readonly Account _account;
     private readonly bool _isNew;
 
@@ -118,6 +120,16 @@ public partial class AccountEditWindow : Window
             ProtocolBox.SelectedItem = choices.Contains(_account.Protocol) ? _account.Protocol : StorageProtocol.Auto;
         }
 
+        // The tenant only means anything to Microsoft; Google has no equivalent.
+        TenantPanel.Visibility = Show(d.Id == ProviderId.OneDrive);
+        if (d.IsOAuth)
+        {
+            var (_, source) = _clients.Resolve(_account);
+            ClientIdHint.Text = source == "nowhere"
+                ? "No client ID is configured anywhere yet, so one is required here."
+                : $"Currently using the client ID from {source}.";
+        }
+
         TlsCheck.Visibility = Show(d.Id is ProviderId.Ftp or ProviderId.WebDav or ProviderId.GenericS3);
         TlsCheck.Content = d.Id == ProviderId.Ftp ? "Use FTPS (TLS)" : "Use HTTPS";
 
@@ -134,6 +146,8 @@ public partial class AccountEditWindow : Window
         UserBox.Text = _account.Username;
         PortBox.Text = _account.Port > 0 ? _account.Port.ToString() : string.Empty;
         TlsCheck.IsChecked = _account.UseTls;
+        ClientIdBox.Text = _account.OAuthClientIdOverride ?? string.Empty;
+        TenantBox.Text = _account.TenantId ?? string.Empty;
         ApplyDescriptor();
     }
 
@@ -159,14 +173,95 @@ public partial class AccountEditWindow : Window
         }
     }
 
-    private void OnOAuthSignIn(object sender, RoutedEventArgs e)
+    /// <summary>
+    /// Runs the interactive sign-in.
+    ///
+    /// This happens here, in the user's session, because it needs a browser — and it happens *once*.
+    /// The refresh token it produces is what lets the LocalSystem service mount the account with
+    /// nobody signed in, which is the whole point.
+    /// </summary>
+    private async void OnOAuthSignIn(object sender, RoutedEventArgs e)
     {
-        // Phase 2. Saying so plainly beats a button that appears to work and silently does nothing.
-        MessageBox.Show(
-            $"Signing in to {Descriptor.DisplayName} is not available in this build.\n\n"
-            + "Drive-letter mappings for it work through rclone once an account exists; interactive "
-            + "sign-in and Files On-Demand arrive in the next release.",
-            "CloudDrive", MessageBoxButton.OK, MessageBoxImage.Information);
+        ErrorText.Text = string.Empty;
+
+        // Collect first: the tenant and any client-id override the user has just typed have to be in
+        // effect before the authorise URL is built.
+        _account.Provider = Descriptor.Id;
+        _account.OAuthClientIdOverride = Blank(ClientIdBox.Text);
+        _account.TenantId = Blank(TenantBox.Text);
+
+        var missing = _clients.DescribeMissingClientId(_account);
+        if (missing is not null)
+        {
+            // A wall of text in a red label would be unreadable; this one needs room and a copy button.
+            var answer = MessageBox.Show(
+                missing + "\n\nOpen the registration page now?",
+                "CloudDrive — OAuth setup required", MessageBoxButton.YesNo, MessageBoxImage.Information);
+            if (answer == MessageBoxResult.Yes)
+            {
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(
+                    OAuthProviders.Require(Descriptor.Id).RegistrationUrl) { UseShellExecute = true });
+            }
+            return;
+        }
+
+        OAuthButton.IsEnabled = false;
+        SaveButton.IsEnabled = false;
+        OAuthStatus.Text = "Waiting for the browser… complete the sign-in there, then come back.";
+
+        try
+        {
+            using var tokens = new OAuthTokenService();
+            var flow = new InteractiveOAuthFlow(tokens);
+
+            var result = await flow.SignInAsync(_account, _clients, CancellationToken.None);
+
+            _account.OAuthIdentity = result.Identity;
+            _account.TokenRefreshedUtc = DateTime.UtcNow;
+            _account.ReauthRequiredReason = null;
+
+            // The refresh token is the credential. It goes to the service on Save, which is what puts
+            // it in the encrypted machine store where the service can reach it.
+            _credentials = new Credentials
+            {
+                RefreshToken = result.RefreshToken,
+                AccessToken = result.AccessToken,
+                AccessTokenExpiresUtc = result.AccessTokenExpiresUtc,
+                OAuthClientSecret = _clients.ClientSecretFor(_account),
+            };
+
+            if (_account.Name.Length == 0 && result.Identity is not null)
+                NameBox.Text = result.Identity;
+
+            UpdateOAuthStatus();
+            OAuthStatus.Text = result.Identity is null
+                ? "Signed in. Choose Save to store it."
+                : $"Signed in as {result.Identity}. Choose Save to store it.";
+        }
+        catch (OperationCanceledException)
+        {
+            OAuthStatus.Text = "Sign-in timed out. Try again.";
+        }
+        catch (Exception ex)
+        {
+            OAuthStatus.Text = "Sign-in did not complete.";
+            ErrorText.Text = ex.Message;
+        }
+        finally
+        {
+            OAuthButton.IsEnabled = true;
+            SaveButton.IsEnabled = true;
+        }
+    }
+
+    private static string? Blank(string text) => string.IsNullOrWhiteSpace(text) ? null : text.Trim();
+
+    private void OnOpenRegistration(object sender, RoutedEventArgs e)
+    {
+        var config = OAuthProviders.For(Descriptor.Id);
+        if (config is null) return;
+        System.Diagnostics.Process.Start(
+            new System.Diagnostics.ProcessStartInfo(config.RegistrationUrl) { UseShellExecute = true });
     }
 
     private void OnBrowseKey(object sender, RoutedEventArgs e)
@@ -224,6 +319,12 @@ public partial class AccountEditWindow : Window
         if (d.Has(ProviderCapabilities.Regions) && RegionBox.SelectedItem is ProviderRegion region)
             _account.RegionCode = region.Code;
 
+        if (d.IsOAuth)
+        {
+            _account.OAuthClientIdOverride = Blank(ClientIdBox.Text);
+            _account.TenantId = Blank(TenantBox.Text);
+        }
+
         if (d.SupportsProtocolBenchmark && ProtocolBox.SelectedItem is StorageProtocol protocol)
         {
             // Changing the protocol invalidates whatever the benchmark last measured.
@@ -269,13 +370,20 @@ public partial class AccountEditWindow : Window
             return d.IsS3 ? "An endpoint is required." : "A server is required.";
         }
 
+        // An OAuth account is only usable once a sign-in has produced a refresh token. Saving one
+        // without would create an account the service can never mount, and the failure would surface
+        // later as a mount error rather than here as a missing step.
+        if (d.Auth == AuthKind.OAuth)
+        {
+            var alreadySignedIn = !_isNew && !string.IsNullOrWhiteSpace(_account.OAuthIdentity);
+            return _credentials?.HasOAuth == true || alreadySignedIn
+                ? null
+                : $"Sign in to {d.DisplayName} before saving this account.";
+        }
+
         // On an edit with no new secret, the stored one stands and there is nothing to check.
         if (_credentials is null)
-        {
-            return _isNew && d.Auth != AuthKind.OAuth
-                ? "Credentials are required."
-                : null;
-        }
+            return _isNew ? "Credentials are required." : null;
 
         return d.Auth switch
         {

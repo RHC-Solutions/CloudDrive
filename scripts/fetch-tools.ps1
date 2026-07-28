@@ -4,7 +4,8 @@
 
 .DESCRIPTION
     At runtime CloudDrive manages these itself, under %ProgramData%\CloudDrive\tools, and verifies
-    every download against the vendor's digest and Authenticode signature (see ToolManager). This
+    every download against the digest GitHub publishes for the asset, and against an Authenticode
+    signature where the vendor provides one (see ToolManager). This
     script is the build-time equivalent: it seeds third_party/ so a freshly cloned tree can build and
     run without the service having fetched anything yet, and so the installer has something to bundle.
 
@@ -29,15 +30,55 @@ function Get-LatestRelease {
     Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases/latest" -Headers $headers
 }
 
-function Assert-Signature {
-    param([string] $Path)
-    # The same rule the runtime tool manager applies: an unsigned binary is refused rather than
-    # installed with a warning, because this one ends up on the system PATH.
-    $signature = Get-AuthenticodeSignature -FilePath $Path
-    if ($signature.Status -ne 'Valid') {
-        throw "$Path is not validly signed (status: $($signature.Status)). Refusing to use it."
+function Assert-Digest {
+    <#
+      Verifies a download against the SHA-256 digest GitHub publishes for the asset.
+
+      This is the primary check, not the signature, because that is what these vendors actually
+      publish: rclone ships unsigned Windows binaries with a SHA256SUMS file. The digest comes from
+      the API response rather than from the downloaded bytes, so it is an independent attestation.
+    #>
+    param([string] $Path, [string] $ExpectedDigest, [string] $Name)
+
+    if (-not $ExpectedDigest) {
+        throw "GitHub published no digest for $Name. Refusing to use an unverified download."
     }
-    Write-Host "  signature OK - $($signature.SignerCertificate.Subject.Split(',')[0])"
+    $expected = $ExpectedDigest -replace '^sha256:', ''
+    $actual = (Get-FileHash -Path $Path -Algorithm SHA256).Hash
+
+    if ($actual -ine $expected) {
+        Remove-Item $Path -Force -ErrorAction SilentlyContinue
+        throw "$Name failed verification. Expected $expected, got $actual. The download was discarded."
+    }
+    Write-Host "  SHA-256 verified: $($actual.ToLower())"
+}
+
+function Assert-Signature {
+    <#
+      Validates an Authenticode signature when one is present.
+
+      An invalid signature is fatal. A missing one is fatal only when -Required is given: WinFsp is
+      signed and installs a kernel driver, while rclone is not signed at all and requiring it would
+      reject the one tool CloudDrive cannot work without.
+    #>
+    param([string] $Path, [switch] $Required)
+
+    $signature = Get-AuthenticodeSignature -FilePath $Path
+
+    if ($signature.Status -eq 'Valid') {
+        Write-Host "  signature OK - $($signature.SignerCertificate.Subject.Split(',')[0])"
+        return
+    }
+
+    if ($signature.Status -eq 'NotSigned') {
+        if ($Required) {
+            throw "$Path is not signed, and it must be - it installs a kernel-mode driver."
+        }
+        Write-Host '  not signed (this vendor does not sign); relying on the digest check'
+        return
+    }
+
+    throw "$Path has an invalid signature (status: $($signature.Status)). Refusing to use it."
 }
 
 # ------------------------------------------------------------------ rclone ---------------------
@@ -62,6 +103,7 @@ if ((Test-Path $rcloneExe) -and -not $Force) {
 
     $zip = Join-Path $env:TEMP $asset.name
     Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $zip -UseBasicParsing
+    Assert-Digest -Path $zip -ExpectedDigest $asset.digest -Name $asset.name
 
     $unpack = Join-Path $env:TEMP ("rclone-" + [guid]::NewGuid().ToString('N'))
     Expand-Archive -Path $zip -DestinationPath $unpack -Force
@@ -71,6 +113,8 @@ if ((Test-Path $rcloneExe) -and -not $Force) {
     $found = Get-ChildItem -Path $unpack -Filter 'rclone.exe' -Recurse | Select-Object -First 1
     if (-not $found) { throw 'rclone.exe was not in the archive; the vendor may have changed its layout.' }
 
+    # The archive is what was verified; the exe inside inherits that. rclone does not sign, so this
+    # only reports rather than gates.
     Assert-Signature -Path $found.FullName
     Copy-Item $found.FullName $rcloneExe -Force
     Set-Content -Path (Join-Path $rcloneDir 'VERSION.txt') -Value $release.tag_name
@@ -94,8 +138,9 @@ if ((Test-Path $winfspMsi) -and -not $Force) {
     Write-Host "  $($asset.name) ($([math]::Round($asset.size / 1MB, 1)) MB)"
     New-Item -ItemType Directory -Force $winfspDir | Out-Null
     Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $winfspMsi -UseBasicParsing
-
-    Assert-Signature -Path $winfspMsi
+    Assert-Digest -Path $winfspMsi -ExpectedDigest $asset.digest -Name $asset.name
+    # A kernel-mode driver: this one must be signed.
+    Assert-Signature -Path $winfspMsi -Required
     Set-Content -Path (Join-Path $winfspDir 'SOURCE.txt') -Value @"
 $($asset.browser_download_url)
 $($release.tag_name)

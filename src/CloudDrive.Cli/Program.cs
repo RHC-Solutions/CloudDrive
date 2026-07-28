@@ -71,17 +71,17 @@ internal static class Program
             CloudDrive {UpdateService.CurrentVersion}
             Mount cloud and server storage as native Windows drives.
 
-              clouddrive status                  What is mounted right now
-              clouddrive list [accounts]         Mappings, or accounts
-              clouddrive mount <name|id>         Mount one mapping
-              clouddrive unmount <name|id>       Unmount one mapping
-              clouddrive remount-all             Unmount everything and reconcile
+              cdrive status                  What is mounted right now
+              cdrive list [accounts]         Mappings, or accounts
+              cdrive mount <name|id>         Mount one mapping
+              cdrive unmount <name|id>       Unmount one mapping
+              cdrive remount-all             Unmount everything and reconcile
 
-              clouddrive service <verb>          install | uninstall | start | stop | restart | status
-              clouddrive tools <verb>            list | check | install <id> | rollback <id> | path
-              clouddrive update [check|install]  Look for a new release, or apply the pending one
-              clouddrive log [lines]             Recent service log (default 100)
-              clouddrive info                    What this machine supports
+              cdrive service <verb>          install | uninstall | start | stop | restart | status
+              cdrive tools <verb>            list | check | install <id> | rollback <id> | path
+              cdrive update [check|install]  Look for a new release, or apply the pending one
+              cdrive log [lines]             Recent service log (default 100)
+              cdrive info                    What this machine supports
 
             Configuration changes require an elevated prompt, because they control what the
             machine-wide service mounts. Accounts and mappings are created in the CloudDrive window;
@@ -92,7 +92,7 @@ internal static class Program
 
     private static int Unknown(string verb)
     {
-        Error($"Unknown command '{verb}'. Run 'clouddrive --help'.");
+        Error($"Unknown command '{verb}'. Run 'cdrive --help'.");
         return 2;
     }
 
@@ -240,7 +240,7 @@ internal static class Program
             case 1:
                 return partial[0];
             case 0:
-                Error($"No mapping matches '{token}'. Run 'clouddrive list' to see them.");
+                Error($"No mapping matches '{token}'. Run 'cdrive list' to see them.");
                 return null;
             default:
                 Error($"'{token}' matches {partial.Count} mappings: {string.Join(", ", partial.Select(m => m.Name))}. "
@@ -266,7 +266,7 @@ internal static class Program
 
         if (verb is "install" or "uninstall" or "start" or "stop" or "restart" && !IsElevated())
         {
-            Error($"'clouddrive service {verb}' needs an elevated prompt.");
+            Error($"'cdrive service {verb}' needs an elevated prompt.");
             return 8;
         }
 
@@ -347,7 +347,7 @@ internal static class Program
             Console.WriteLine(binDir);
             Console.WriteLine(SystemPath.Contains(binDir)
                 ? "This directory is on the system PATH."
-                : "This directory is NOT on the system PATH. Add it with: clouddrive tools path --register");
+                : "This directory is NOT on the system PATH. Add it with: cdrive tools path --register");
             return 0;
         }
 
@@ -387,7 +387,7 @@ internal static class Program
 
             case "install":
             {
-                if (args.Length < 3) { Error("Which tool? e.g. clouddrive tools install rclone"); return 2; }
+                if (args.Length < 3) { Error("Which tool? e.g. cdrive tools install rclone"); return 2; }
                 Console.WriteLine($"Installing {args[2]}…");
                 var version = await client.CallAsync<string>(IpcOperation.InstallTool, args[2]).ConfigureAwait(false);
                 Console.WriteLine($"Installed {args[2]} {version}.");
@@ -396,7 +396,7 @@ internal static class Program
 
             case "rollback":
             {
-                if (args.Length < 3) { Error("Which tool? e.g. clouddrive tools rollback rclone"); return 2; }
+                if (args.Length < 3) { Error("Which tool? e.g. cdrive tools rollback rclone"); return 2; }
                 await client.CallAsync(IpcOperation.RollbackTool, args[2]).ConfigureAwait(false);
                 Console.WriteLine($"Rolled {args[2]} back to the previous version.");
                 return 0;
