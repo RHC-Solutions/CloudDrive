@@ -24,4 +24,10 @@
     <PackageReference Include="System.ServiceProcess.ServiceController" Version="10.0.0" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- BuildInstallArguments is internal so the sc.exe token shape can be asserted without
+         registering a real service. -->
+    <InternalsVisibleTo Include="CloudDrive.Tests" />
+  </ItemGroup>
+
 </Project>

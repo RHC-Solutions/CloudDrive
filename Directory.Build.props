@@ -6,7 +6,7 @@
     or the platform-compatibility analyzer.
   -->
   <PropertyGroup>
-    <Version>1.0.3</Version>
+    <Version>1.0.4</Version>
     <Product>CloudDrive</Product>
     <Company>RHC Solutions</Company>
     <Authors>RHC Solutions</Authors>

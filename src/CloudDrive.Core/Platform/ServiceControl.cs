@@ -88,30 +88,58 @@ public static class ServiceControl
         if (string.IsNullOrWhiteSpace(serviceExePath) || !File.Exists(serviceExePath))
             throw new FileNotFoundException("The service executable was not found.", serviceExePath);
 
-        // sc.exe is fussy: binPath= needs the space after '=' and the value quoted.
         var verb = IsInstalled() ? "config" : "create";
-        RunSc(verb, ServiceName,
-            $"binPath= \"{serviceExePath}\"",
-            "start= auto",
-            "obj= LocalSystem",
-            $"DisplayName= \"{DisplayName}\"");
+        RunSc([.. BuildInstallArguments(verb, ServiceName, serviceExePath, DisplayName)]);
 
         // Cosmetic; a failure here should not fail the install.
-        try { RunSc("description", ServiceName, $"\"{Description}\""); } catch { /* ignore */ }
+        try { RunSc("description", ServiceName, Description); } catch { /* ignore */ }
 
         // Restart after a crash rather than leaving every mount down until someone notices.
         try
         {
             RunSc("failure", ServiceName,
-                "reset= 86400", "actions= restart/5000/restart/15000/restart/60000");
+                "reset=", "86400",
+                "actions=", "restart/5000/restart/15000/restart/60000");
         }
         catch { /* ignore */ }
-
-        // Delayed auto-start: at boot the network stack is often not ready, and a mount that fails
-        // because DNS was not up yet burns the restart budget before the machine has finished
-        // starting. The reconciler would recover, but starting late avoids the noise entirely.
-        try { RunSc("config", ServiceName, "start= delayed-auto"); } catch { /* ignore */ }
     }
+
+    /// <summary>
+    /// Builds the <c>sc.exe</c> token list for creating or reconfiguring the service.
+    ///
+    /// <para><b>Each option name and its value must be separate tokens.</b> sc.exe parses its arguments
+    /// as pairs: a token ending in <c>=</c> names an option and the <i>next</i> token is its value. The
+    /// familiar "a space is required after the equals sign" advice is describing exactly that, not a
+    /// quirk of formatting.</para>
+    ///
+    /// <para>Passing <c>"start= auto"</c> as one argument therefore fails, and fails obscurely: .NET sees
+    /// a value containing a space, quotes it, and sc.exe receives the single token <c>start= auto</c> and
+    /// answers <c>1639, Invalid start= field</c>. That is what happened — the service could never be
+    /// installed at all, and because setup ignored the exit code, it looked like it had worked.</para>
+    ///
+    /// <para>Values are also passed raw rather than pre-quoted, because
+    /// <see cref="System.Diagnostics.ProcessStartInfo.ArgumentList"/> quotes what needs quoting. Adding
+    /// quotes by hand would embed them literally, which matters here: the path is normally under
+    /// <c>C:\Program Files\</c> and contains a space.</para>
+    ///
+    /// <para>Kept pure and internal so the token shape can be unit-tested without registering anything.</para>
+    /// </summary>
+    internal static IReadOnlyList<string> BuildInstallArguments(
+        string verb, string serviceName, string exePath, string displayName) =>
+    [
+        verb,
+        serviceName,
+        "binPath=", exePath,
+        // delayed-auto rather than auto: at boot the network stack is often not ready, and a mount that
+        // fails because DNS was not up yet burns the restart budget before the machine has finished
+        // starting. The reconciler would recover, but starting late avoids the noise entirely.
+        //
+        // Set here rather than by a follow-up "sc config start= delayed-auto" call, which is what this
+        // used to do — one command that gets it right beats two where the second can fail silently.
+        "start=", "delayed-auto",
+        "obj=", "LocalSystem",
+        "DisplayName=", displayName,
+    ];
 
     public static void Uninstall()
     {
