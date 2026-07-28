@@ -116,6 +116,10 @@ if (-not (Test-Path $setup)) { throw 'ISCC reported success but produced no inst
 $versioned = Join-Path $installerDir "output\CloudDrive-Setup-$version.exe"
 Copy-Item $setup $versioned -Force
 
+# Keep the README's download link, size and checksum in step with what was just built. A stale
+# checksum is worse than none: it tells a careful reader their download is corrupt when it is fine.
+& (Join-Path $PSScriptRoot 'update-readme-download.ps1') -Root $root
+
 $size = [math]::Round((Get-Item $setup).Length / 1MB, 1)
 Write-Host ''
 Write-Host "Built CloudDrive-Setup.exe ($size MB)"

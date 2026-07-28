@@ -7,6 +7,36 @@ before anyone signs in.
 CloudDrive replaces **WasabiDrive** and **HetznerDrive** with one application. Those two projects are
 read-only inputs to this one; neither is modified by it.
 
+## Download
+
+### [⬇ CloudDrive-Setup.exe — 1.0.4](https://github.com/RHC-Solutions/CloudDrive/releases/download/v1.0.4/CloudDrive-Setup.exe)
+
+78 MB · Windows 10 1607+, Windows 11, Windows Server 2016–2025 · x64 · self-contained, no .NET needed
+&nbsp;·&nbsp; [All releases](https://github.com/RHC-Solutions/CloudDrive/releases)
+
+SHA-256, to check before running an unsigned installer:
+
+```
+8f097b8a4334f665d83ff6b6ca094f38ab647f2b37e6769163ea5533d932edb7
+```
+
+```powershell
+(Get-FileHash .\CloudDrive-Setup.exe -Algorithm SHA256).Hash
+```
+
+> **1.0.4 is a prerelease.** The link above points at the tag rather than
+> `releases/latest/download/…`, because GitHub's *latest* excludes prereleases and that shortcut
+> currently 404s. It starts working — and this link can become permanent — with the first stable
+> release.
+>
+> Two things follow from the prerelease flag and are expected: the in-app updater queries the *latest*
+> release and so will not offer a prerelease, and SmartScreen will warn because the installer is
+> unsigned.
+>
+> More to the point: the code paths that talk to remote storage have **never been run against real
+> storage**. No mount has been made against any provider and no OAuth sign-in has been completed
+> against a real app registration.
+
 ---
 
 ## What is different
