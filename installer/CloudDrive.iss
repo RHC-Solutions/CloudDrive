@@ -14,6 +14,7 @@
 #define AppExe         "CloudDrive.exe"
 #define ServiceExe     "CloudDrive.Service.exe"
 #define ServiceName    "CloudDrive"
+#define Repo           "RHC-Solutions/CloudDrive"
 
 #ifndef AppVersion
   #define AppVersion "1.0.0"
@@ -142,12 +143,222 @@ begin
            mbError, MB_OK);
 end;
 
+{ ----------------------------------------------------------------------------------------------
+  Self-update: before installing anything, look for a newer release and hand over to it.
+
+  The point is that one downloaded CloudDrive-Setup.exe stays useful indefinitely -- run the copy you
+  already have and it fetches whatever is current rather than installing a stale build.
+
+  Rules this follows, each for a reason:
+
+    * A failed check never blocks the install. No network, a rate-limited API, a malformed response:
+      all fall through to the bundled payload. An installer that refuses to work offline would be a
+      far worse defect than installing a slightly old version.
+    * The download is verified against a SHA-256 published alongside it, and DownloadTemporaryFile
+      refuses the file if it does not match. This code downloads and then *executes* an executable,
+      so an unverified byte stream is not acceptable at any point.
+    * Skipped entirely for a silent install. That is how the in-app updater runs setup, and it has
+      already chosen a specific version deliberately; hopping to a different one behind its back
+      could also loop. /NOSELFUPDATE forces the same skip for anyone scripting an install.
+    * The replacement is launched with /NOSELFUPDATE, so the hand-off happens at most once.
+  ---------------------------------------------------------------------------------------------- }
+
+var
+  SkipSelfUpdate: Boolean;
+
+{ A small HTTP GET returning the body as text. WinHttp rather than DownloadTemporaryFile because the
+  GitHub API needs request headers -- it rejects a request with no User-Agent -- and because the
+  response is wanted in memory rather than on disk. }
+function HttpGetText(const Url: String; var Text: String): Boolean;
+var
+  Http: Variant;
+begin
+  Result := False;
+  try
+    Http := CreateOleObject('WinHttp.WinHttpRequest.5.1');
+    { Short timeouts: this runs before the wizard appears, so a hanging endpoint would look like a
+      setup that failed to start. Resolve, connect, send, receive. }
+    Http.SetTimeouts(5000, 5000, 5000, 15000);
+    Http.Open('GET', Url, False);
+    Http.SetRequestHeader('User-Agent', 'CloudDrive-Setup');
+    Http.SetRequestHeader('Accept', 'application/vnd.github+json');
+    Http.Send();
+    if Http.Status = 200 then
+    begin
+      Text := Http.ResponseText;
+      Result := True;
+    end;
+  except
+    Result := False;
+  end;
+end;
+
+{ Reads the first "tag_name" out of a GitHub releases response.
+
+  Deliberately the only field parsed out of that JSON. Everything else is derived from the tag by
+  building a URL, because hand-rolled JSON scraping is brittle and the less of it there is the better.
+  Draft releases are invisible to an anonymous caller, so the first entry is the newest published one. }
+function ExtractFirstTag(const Json: String): String;
+var
+  P, Q: Integer;
+begin
+  Result := '';
+  P := Pos('"tag_name"', Json);
+  if P = 0 then Exit;
+
+  P := P + Length('"tag_name"');
+  { Step over the colon, any whitespace, and the opening quote. }
+  while (P <= Length(Json)) and (Json[P] <> '"') do Inc(P);
+  Inc(P);
+
+  Q := P;
+  while (Q <= Length(Json)) and (Json[Q] <> '"') do Inc(Q);
+  if Q > P then Result := Copy(Json, P, Q - P);
+end;
+
+{ Splits a version into three numbers, tolerating a leading v and any -suffix. }
+function ParseVersion(V: String; var A, B, C: Integer): Boolean;
+var
+  Parts: TArrayOfString;
+  Cut: Integer;
+begin
+  Result := False;
+  A := 0; B := 0; C := 0;
+
+  if (Length(V) > 0) and ((V[1] = 'v') or (V[1] = 'V')) then V := Copy(V, 2, Length(V) - 1);
+
+  { Drop a prerelease or build suffix such as -beta.1 before splitting. }
+  Cut := Pos('-', V);
+  if Cut > 0 then V := Copy(V, 1, Cut - 1);
+  Cut := Pos('+', V);
+  if Cut > 0 then V := Copy(V, 1, Cut - 1);
+
+  Parts := StringSplitEx(V, ['.'], '"', stExcludeEmpty);
+  if GetArrayLength(Parts) < 2 then Exit;
+
+  A := StrToIntDef(Parts[0], -1);
+  B := StrToIntDef(Parts[1], -1);
+  if GetArrayLength(Parts) > 2 then C := StrToIntDef(Parts[2], 0);
+
+  Result := (A >= 0) and (B >= 0) and (C >= 0);
+end;
+
+{ True when Candidate is a strictly newer version than Installed. }
+function IsNewerVersion(const Candidate, Installed: String): Boolean;
+var
+  Ca, Cb, Cc, Ia, Ib, Ic: Integer;
+begin
+  Result := False;
+  if not ParseVersion(Candidate, Ca, Cb, Cc) then Exit;
+  if not ParseVersion(Installed, Ia, Ib, Ic) then Exit;
+
+  if Ca <> Ia then Result := Ca > Ia
+  else if Cb <> Ib then Result := Cb > Ib
+  else Result := Cc > Ic;
+end;
+
+{ Reads the hex digest out of a published .sha256 sidecar, which may be bare hex or
+  "<hex>  <filename>" in sha256sum's format. }
+function ParseSha256(const Text: String): String;
+var
+  I: Integer;
+  Ch: Char;
+begin
+  Result := '';
+  for I := 1 to Length(Text) do
+  begin
+    Ch := Text[I];
+    if ((Ch >= '0') and (Ch <= '9')) or ((Ch >= 'a') and (Ch <= 'f')) or ((Ch >= 'A') and (Ch <= 'F')) then
+      Result := Result + Ch
+    else
+      Break;
+  end;
+  if Length(Result) <> 64 then Result := '';
+end;
+
+{ Looks for a newer release and, if the user agrees, downloads and launches it.
+
+  Returns True when the hand-off happened and this setup should stop. }
+function TrySelfUpdate: Boolean;
+var
+  Json, Tag, ShaText, Sha, Url, Downloaded, Handoff, Params: String;
+  ResultCode: Integer;
+begin
+  Result := False;
+
+  if SkipSelfUpdate or WizardSilent then Exit;
+
+  if not HttpGetText('https://api.github.com/repos/{#Repo}/releases?per_page=10', Json) then Exit;
+
+  Tag := ExtractFirstTag(Json);
+  if Tag = '' then Exit;
+  if not IsNewerVersion(Tag, '{#AppVersion}') then Exit;
+
+  { The digest comes from a sidecar published next to the installer, fetched over its own connection.
+    Releases before this feature existed have no sidecar, in which case there is nothing to verify
+    against and the bundled payload is used instead -- never an unverified download. }
+  if not HttpGetText('https://github.com/{#Repo}/releases/download/' + Tag + '/CloudDrive-Setup.exe.sha256', ShaText) then
+  begin
+    Log('CloudDrive: ' + Tag + ' publishes no checksum; installing the bundled version instead.');
+    Exit;
+  end;
+
+  Sha := ParseSha256(ShaText);
+  if Sha = '' then Exit;
+
+  if MsgBox('A newer version of CloudDrive is available.' + #13#10#13#10 +
+            'This installer contains ' + '{#AppVersion}' + '.' + #13#10 +
+            Tag + ' has been published.' + #13#10#13#10 +
+            'Download and install it instead?' + #13#10#13#10 +
+            'The download is about 78 MB and setup will look idle while it runs.',
+            mbConfirmation, MB_YESNO) <> IDYES then
+  begin
+    Exit;
+  end;
+
+  Url := 'https://github.com/{#Repo}/releases/download/' + Tag + '/CloudDrive-Setup.exe';
+  try
+    { The third argument makes this refuse a file whose SHA-256 does not match. }
+    DownloadTemporaryFile(Url, 'CloudDrive-Setup.exe', Sha, nil);
+  except
+    MsgBox('The newer version could not be downloaded or failed verification, so ' + '{#AppVersion}' +
+           ' will be installed instead.' + #13#10#13#10 + GetExceptionMessage,
+           mbInformation, MB_OK);
+    Exit;
+  end;
+
+  { Copied out of Setup's temporary directory, which Setup deletes on exit -- the child process would
+    otherwise lose its own executable mid-run.
+
+    That directory's constant cannot be named inside a brace comment: Inno reads the constant's closing
+    brace as the end of the comment and compiles the rest of the line, which is what "Identifier
+    expected" on this line meant. }
+  Downloaded := ExpandConstant('{tmp}') + '\CloudDrive-Setup.exe';
+  Handoff := ExpandConstant('{%TEMP}') + '\CloudDrive-Setup-' + Tag + '.exe';
+  if not FileCopy(Downloaded, Handoff, False) then Exit;
+
+  { Pass the original switches through so an operator's choices survive the hand-off, plus the flag
+    that stops the replacement doing this again. }
+  Params := GetCmdTail;
+  if Params <> '' then Params := Params + ' ';
+  Params := Params + '/NOSELFUPDATE';
+
+  if Exec(Handoff, Params, '', SW_SHOW, ewNoWait, ResultCode) then
+    Result := True
+  else
+    MsgBox('The newer installer was downloaded but could not be started, so ' + '{#AppVersion}' +
+           ' will be installed instead.', mbInformation, MB_OK);
+end;
+
 function InitializeSetup: Boolean;
 begin
   { The in-app updater passes /RESTARTSERVICE so the service comes back after the swap. It is a
     custom switch rather than a task, because a silent install runs no task selection. }
   RestartServiceAfterInstall := ExpandConstant('{param:RESTARTSERVICE|no}') <> 'no';
-  Result := True;
+  SkipSelfUpdate := ExpandConstant('{param:NOSELFUPDATE|no}') <> 'no';
+
+  { Returning False here stops this setup because a newer one has been launched in its place. }
+  Result := not TrySelfUpdate;
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
