@@ -68,11 +68,15 @@ public sealed class AlertDispatcher : IAsyncDisposable
             var notifications = settings.Notifications;
             if (!notifications.Enabled || notifications.Targets.Count == 0) return;
 
-            if (ShouldSuppress(alert, notifications, out var suppressedCount)) return;
-            alert.SuppressedCount = suppressedCount;
-
+            // Work out who wants it *before* consuming the cooldown. The other order meant an alert
+            // that nothing was listening for still marked its key as just-sent, so the first alert
+            // after someone added a target — or raised a target's severity floor — was suppressed for
+            // a cooldown period despite never having been delivered.
             var targets = notifications.Targets.Where(t => Accepts(t, alert)).ToList();
             if (targets.Count == 0) return;
+
+            if (ShouldSuppress(alert, notifications, out var suppressedCount)) return;
+            alert.SuppressedCount = suppressedCount;
 
             foreach (var target in targets)
             {
@@ -178,9 +182,12 @@ public sealed class AlertDispatcher : IAsyncDisposable
     /// Clears the cooldown for a key, so a recovery message is not swallowed because the failure it
     /// resolves went out moments ago. "Mount restored" is exactly the alert a user most wants
     /// promptly.
+    ///
+    /// Uses <see cref="Alert.KeyFor"/> so it cannot drift from how the key was written in the first
+    /// place — it previously did, and account-scoped resets silently matched nothing.
     /// </summary>
-    public void ResetSuppression(AlertKind kind, Guid? mappingId) =>
-        _suppressed.TryRemove($"{kind}:{mappingId?.ToString("N") ?? "-"}", out _);
+    public void ResetSuppression(AlertKind kind, Guid? mappingId, Guid? accountId = null) =>
+        _suppressed.TryRemove(Alert.KeyFor(kind, mappingId, accountId), out _);
 
     // ---------------------------------------------------------------- Spool -------------------
 

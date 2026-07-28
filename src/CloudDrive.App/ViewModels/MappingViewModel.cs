@@ -1,6 +1,7 @@
 using System.Windows.Media;
 using CloudDrive.Core.Models;
 using CloudDrive.Core.Providers;
+using CloudFiles = CloudDrive.CloudFiles;
 using CommunityToolkit.Mvvm.ComponentModel;
 
 namespace CloudDrive.App.ViewModels;
@@ -54,9 +55,15 @@ public sealed partial class MappingViewModel : ObservableObject
         ? "On-demand"
         : Mapping.MountTarget == MountTarget.Directory ? "Folder" : "Drive";
 
-    /// <summary>Where it appears in Explorer.</summary>
+    /// <summary>
+    /// Where it appears in Explorer — a real, usable path in every case.
+    ///
+    /// An on-demand mapping with no explicit folder used to report the literal string
+    /// "(user profile)", which the list showed and which "Copy local path" and "Open in Explorer" then
+    /// acted on. Resolving the default the sync engine will actually use means all three agree.
+    /// </summary>
     public string Target => Mapping.Mode == MappingMode.OnDemandFolder
-        ? Mapping.LocalFolderPath ?? "(user profile)"
+        ? CloudFiles.OnDemandSyncManager.ResolveFolderPath(Mapping)
         : Mapping.MountPoint;
 
     /// <summary>Who runs it, which is the thing that decides whether it survives a logoff.</summary>

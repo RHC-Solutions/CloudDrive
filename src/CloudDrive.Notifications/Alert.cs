@@ -44,7 +44,18 @@ public sealed class Alert
     /// many times it fires. Without this a mount flapping every few seconds sends hundreds of
     /// messages, the channel gets muted, and the alerting is worse than useless.
     /// </summary>
-    public string DedupeKey => $"{Kind}:{MappingId?.ToString("N") ?? AccountId?.ToString("N") ?? "-"}";
+    public string DedupeKey => KeyFor(Kind, MappingId, AccountId);
+
+    /// <summary>
+    /// Builds a dedupe key, so suppressing and un-suppressing cannot disagree.
+    ///
+    /// They did: the property fell back to the account id when there was no mapping id, while
+    /// <c>AlertDispatcher.ResetSuppression</c> built the key from the mapping id alone. Clearing the
+    /// cooldown for an account-scoped alert — a re-authorisation, say — therefore looked up a key that
+    /// had never been written, so the "it is fixed" message stayed suppressed for the whole cooldown.
+    /// </summary>
+    public static string KeyFor(AlertKind kind, Guid? mappingId, Guid? accountId = null) =>
+        $"{kind}:{mappingId?.ToString("N") ?? accountId?.ToString("N") ?? "-"}";
 
     public static Alert Info(AlertKind kind, string title, string message) =>
         new() { Kind = kind, Severity = AlertSeverity.Info, Title = title, Message = message };

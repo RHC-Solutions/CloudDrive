@@ -48,12 +48,32 @@ public sealed class JsonFileStore<T> where T : class, new()
     /// </summary>
     public T Load()
     {
-        if (!File.Exists(_path)) return new T();
-
         string json;
         try
         {
             json = ReadShared(_path);
+        }
+        catch (FileNotFoundException)
+        {
+            // Genuinely absent, which is the normal state before anything has been configured.
+            return new T();
+        }
+        catch (DirectoryNotFoundException)
+        {
+            return new T();
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            // Present but unreadable. This must never be mistaken for "empty".
+            //
+            // The previous implementation guarded with File.Exists, which returns false on
+            // access-denied rather than throwing — so an unreadable configuration file looked
+            // identical to a missing one and Load() returned a blank document. That is how a
+            // permissions problem became silent data loss: a caller would read nothing, add one
+            // entry, and save it back over every account and mapping on disk.
+            throw new InvalidOperationException(
+                $"'{_path}' exists but cannot be read by this process. Refusing to treat it as empty, "
+                + "because doing so would discard the configuration on the next save.", ex);
         }
         catch (IOException) when (File.Exists(_path))
         {

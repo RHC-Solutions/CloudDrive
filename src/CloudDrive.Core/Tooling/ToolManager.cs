@@ -228,8 +228,13 @@ public sealed class ToolManager
                 break;
             case ToolPackageKind.Installer:
                 Directory.CreateDirectory(target);
-                File.Copy(downloaded, Path.Combine(target, assetName), overwrite: true);
-                // An MSI is run by the installer or by an administrator, not unpacked onto PATH.
+                var msi = Path.Combine(target, assetName);
+                File.Copy(downloaded, msi, overwrite: true);
+                VerifySignature(msi, tool);
+                // Actually run it. Copying the MSI into a folder and reporting success installed
+                // nothing at all: "cdrive tools install winfsp" said "Installed WinFsp 2.1" while
+                // WinFsp remained absent and every drive mount kept failing.
+                RunMsi(msi, tool);
                 break;
         }
 
@@ -239,11 +244,6 @@ public sealed class ToolManager
             VerifySignature(exe, tool);
             VerifyRuns(exe, tool);
             PublishToBin(exe);
-        }
-        else if (tool.RequiresSignature)
-        {
-            // An installer is never unpacked, so the signature is checked on the package itself.
-            VerifySignature(Path.Combine(target, assetName), tool);
         }
 
         var state = _state.Load();
@@ -463,6 +463,57 @@ public sealed class ToolManager
         }
 
         _log?.Invoke($"{tool.DisplayName} signature valid — {certificate.Subject.Split(',')[0]}");
+    }
+
+    /// <summary>
+    /// Installs an MSI silently.
+    ///
+    /// <para>Needs elevation, and says so rather than pretending. WinFsp installs a kernel-mode driver,
+    /// so there is no unelevated path and no point downloading the package and calling it done —
+    /// which is what this used to do, reporting a successful install while the driver stayed absent.</para>
+    ///
+    /// <para><c>/norestart</c> because a mount service must never trigger a surprise reboot. Exit code
+    /// 3010 means "success, a reboot is pending" and is treated as success with a note.</para>
+    /// </summary>
+    private void RunMsi(string msiPath, ToolDefinition tool)
+    {
+        if (!ProcessIdentity.CanWriteMachineStore)
+        {
+            throw new UnauthorizedAccessException(
+                $"{tool.DisplayName} is an installer package and needs administrator rights. "
+                + $"The download is verified and waiting at:\n  {msiPath}\n"
+                + "Run it from an elevated prompt, or let the CloudDrive installer handle it.");
+        }
+
+        _log?.Invoke($"Installing {tool.DisplayName} with msiexec…");
+
+        using var process = Process.Start(new ProcessStartInfo("msiexec.exe")
+        {
+            ArgumentList = { "/i", msiPath, "/qn", "/norestart" },
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        }) ?? throw new InvalidOperationException("msiexec could not be started.");
+
+        if (!process.WaitForExit(TimeSpan.FromMinutes(5)))
+        {
+            try { process.Kill(entireProcessTree: true); } catch { /* already gone */ }
+            throw new TimeoutException($"Installing {tool.DisplayName} did not finish within five minutes.");
+        }
+
+        const int rebootRequired = 3010;
+        if (process.ExitCode == rebootRequired)
+        {
+            _log?.Invoke($"{tool.DisplayName} installed; a reboot is pending before it is fully active.");
+            return;
+        }
+
+        if (process.ExitCode != 0)
+        {
+            throw new InvalidOperationException(
+                $"Installing {tool.DisplayName} failed: msiexec exited with {process.ExitCode}.");
+        }
+
+        _log?.Invoke($"{tool.DisplayName} installed.");
     }
 
     /// <summary>

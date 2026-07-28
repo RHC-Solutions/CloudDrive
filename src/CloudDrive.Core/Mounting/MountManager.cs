@@ -113,7 +113,11 @@ public sealed class MountManager : IAsyncDisposable
         }
         catch
         {
+            // Dispose the process as well as forgetting the session. Dropping the reference alone
+            // leaked a Process handle on every failed mount, and the reconciler retries failed
+            // mappings every couple of minutes indefinitely.
             _sessions.TryRemove(mapping.Id, out _);
+            session.Process.Dispose();
             throw;
         }
     }

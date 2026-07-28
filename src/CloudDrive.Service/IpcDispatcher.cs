@@ -75,7 +75,6 @@ public sealed class IpcDispatcher(
     {
         var document = config.Load();
         var settings = config.LoadSettings();
-
         var warnings = new List<string>();
         if (reconciler.UnavailableReason is { } reason) warnings.Add(reason);
         if (!WinFsp.IsInstalled)

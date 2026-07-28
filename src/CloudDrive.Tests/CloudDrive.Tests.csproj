@@ -19,6 +19,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\CloudDrive.Core\CloudDrive.Core.csproj" />
+    <ProjectReference Include="..\CloudDrive.Notifications\CloudDrive.Notifications.csproj" />
+    <ProjectReference Include="..\CloudDrive.Ipc\CloudDrive.Ipc.csproj" />
   </ItemGroup>
 
 </Project>

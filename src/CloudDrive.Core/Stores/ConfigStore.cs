@@ -49,13 +49,32 @@ public sealed class ConfigStore
         }
     }
 
-    public ConfigDocument Load() => _config.Load();
+    // Every read and write takes the same lock as Mutate.
+    //
+    // These four used to bypass it, which made the locking in Mutate mostly decorative: two IPC
+    // requests arriving together — one saving settings wholesale, one mutating a notification target —
+    // could each read, each apply their change, and the second write would discard the first. The
+    // dispatcher serialises nothing, so concurrent requests are the normal case rather than a rare one.
 
-    public void Save(ConfigDocument document) => _config.Save(document);
+    public ConfigDocument Load()
+    {
+        lock (_gate) return _config.Load();
+    }
 
-    public AppSettings LoadSettings() => _settings.Load();
+    public void Save(ConfigDocument document)
+    {
+        lock (_gate) _config.Save(document);
+    }
 
-    public void SaveSettings(AppSettings settings) => _settings.Save(settings);
+    public AppSettings LoadSettings()
+    {
+        lock (_gate) return _settings.Load();
+    }
+
+    public void SaveSettings(AppSettings settings)
+    {
+        lock (_gate) _settings.Save(settings);
+    }
 
     /// <summary>
     /// Reads, mutates and writes under one lock. Every mutation goes through here so two concurrent

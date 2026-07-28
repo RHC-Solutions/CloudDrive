@@ -1,10 +1,12 @@
 using System.Collections.Concurrent;
 using System.IO.Pipes;
+using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using System.Security.AccessControl;
 using System.Security.Principal;
 using System.Text;
 using System.Text.Json;
+using Microsoft.Win32.SafeHandles;
 
 namespace CloudDrive.Ipc;
 
@@ -38,7 +40,7 @@ public sealed record IpcRequest(IpcOperation Operation, JsonElement? Payload, Ip
 /// <para><b>The ACL is the security boundary.</b> Interactive users need to reach the pipe — the tray
 /// app is a client — so it cannot simply be locked to Administrators. Instead every authenticated
 /// user may connect and issue read-only calls, and the dispatcher authorises each operation against
-/// the caller's own token, obtained by impersonation rather than taken on trust from the message.
+/// the caller's own token, read from the client's process rather than taken on trust from the message.
 /// Anonymous and network logons are refused outright: this is a local IPC channel and a remote
 /// caller has no business on it.</para>
 /// </summary>
@@ -297,34 +299,73 @@ public sealed class IpcServer : IAsyncDisposable
     }
 
     /// <summary>
-    /// Determines who connected, by impersonating them and reading the resulting token.
+    /// Determines who connected, by reading the client process's token — <b>without impersonating</b>.
     ///
-    /// The identity is taken from the operating system, never from anything in the message. A client
-    /// can claim whatever it likes in JSON; it cannot fake the token Windows attaches to its end of
-    /// the pipe.
+    /// <para>The identity comes from the operating system, never from anything in the message: a client
+    /// can claim what it likes in JSON, but it cannot fake the token Windows attaches to its end of the
+    /// pipe.</para>
+    ///
+    /// <para><b>Why not <c>RunAsClient</c>.</b> That impersonates the caller, and the impersonation was
+    /// still in effect when the request handler ran. Because clients connect at
+    /// <see cref="TokenImpersonationLevel.Identification"/> — deliberately, so a rogue server cannot act
+    /// as the user — that token cannot satisfy an access check, so every file operation inside a handler
+    /// failed. <see cref="File.Exists"/> returns <c>false</c> on access-denied rather than throwing, so
+    /// the failures were completely silent: the service reported no accounts and no mappings while the
+    /// configuration sat on disk, and a save would have read that empty document, added one entry and
+    /// written it back — destroying everything else. Reading the client's process token needs no
+    /// impersonation and leaves this thread's own privileges untouched.</para>
     /// </summary>
     private static IpcCaller IdentifyCaller(NamedPipeServerStream pipe)
     {
-        string sid = string.Empty;
-        string name = "unknown";
-        var isAdmin = false;
+        if (!GetNamedPipeClientProcessId(pipe.SafePipeHandle, out var clientPid))
+            throw new IOException("The pipe client's process could not be identified.");
 
-        pipe.RunAsClient(() =>
+        // PROCESS_QUERY_LIMITED_INFORMATION is enough to open the token and is grantable across
+        // integrity levels, unlike PROCESS_QUERY_INFORMATION.
+        using var process = OpenProcess(ProcessQueryLimitedInformation, false, clientPid);
+        if (process.IsInvalid)
+            throw new IOException($"The pipe client's process ({clientPid}) could not be opened.");
+
+        if (!OpenProcessToken(process, TokenQuery | TokenDuplicate, out var token))
+            throw new IOException("The pipe client's token could not be opened.");
+
+        using (token)
         {
-            using var identity = WindowsIdentity.GetCurrent();
-            sid = identity.User?.Value ?? string.Empty;
-            name = identity.Name;
+            using var identity = new WindowsIdentity(token.DangerousGetHandle());
+            var sid = identity.User?.Value ?? string.Empty;
 
-            // Check group membership on the caller's own token rather than resolving the group
-            // separately, so a user whose administrator rights are filtered by UAC is correctly
-            // treated as a standard user.
-            var principal = new WindowsPrincipal(identity);
-            isAdmin = principal.IsInRole(WindowsBuiltInRole.Administrator)
-                      || string.Equals(sid, "S-1-5-18", StringComparison.Ordinal); // LocalSystem
-        });
+            // Group membership is evaluated on the caller's own token, so a user whose administrator
+            // rights are filtered by UAC is correctly treated as a standard user.
+            var isAdmin = new WindowsPrincipal(identity).IsInRole(WindowsBuiltInRole.Administrator)
+                          || string.Equals(sid, "S-1-5-18", StringComparison.Ordinal); // LocalSystem
 
-        return new IpcCaller(sid, name, isAdmin);
+            return new IpcCaller(sid, identity.Name, isAdmin);
+        }
     }
+
+    private const int ProcessQueryLimitedInformation = 0x1000;
+
+    // TOKEN_QUERY reads the SID and groups; TOKEN_DUPLICATE is also required because the
+    // WindowsIdentity(IntPtr) constructor duplicates the handle it is given. Asking for QUERY alone
+    // produced "Access is denied" from inside the constructor, which reads like a permissions problem
+    // with the client rather than a missing right in this request.
+    private const int TokenQuery = 0x0008;
+    private const int TokenDuplicate = 0x0002;
+
+    // Classic DllImport rather than LibraryImport: the source generator does not marshal SafeHandle
+    // types, and using raw IntPtrs here would trade a handle leak for a compile-time convenience.
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetNamedPipeClientProcessId(SafePipeHandle pipe, out uint clientProcessId);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern SafeProcessHandle OpenProcess(
+        int desiredAccess, [MarshalAs(UnmanagedType.Bool)] bool inheritHandle, uint processId);
+
+    [DllImport("advapi32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool OpenProcessToken(
+        SafeProcessHandle process, int desiredAccess, out SafeAccessTokenHandle token);
 
     /// <summary>Pushes an event to every subscriber. Failures drop that subscriber, not the event.</summary>
     public async Task PublishAsync(IpcOperation operation, object payload, CancellationToken ct = default)
