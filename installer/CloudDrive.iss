@@ -54,7 +54,8 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
 Name: "service";   Description: "Install the CloudDrive service (recommended)"; GroupDescription: "Setup:"
-Name: "startup";   Description: "Start CloudDrive at sign-in";                  GroupDescription: "Setup:"
+; No "start at sign-in" task: that is a per-user setting the app owns, and it defaults to on. Offering
+; it here would imply the installer can set it for the eventual user, which an elevated install cannot.
 Name: "path";      Description: "Add the CloudDrive tools directory to PATH";   GroupDescription: "Setup:"
 Name: "desktopicon"; Description: "Create a desktop shortcut";                  GroupDescription: "Setup:"; Flags: unchecked
 
@@ -85,10 +86,17 @@ Filename: "{app}\{#AppExe}"; Description: "Start CloudDrive"; \
 Filename: "{app}\cdrive.exe"; Parameters: "service uninstall"; \
   Flags: runhidden waituntilterminated; RunOnceId: "RemoveService"
 
-[Registry]
-Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; \
-  ValueName: "{#AppName}"; ValueData: """{app}\{#AppExe}"""; \
-  Flags: uninsdeletevalue; Tasks: startup
+; No [Registry] section, deliberately.
+;
+; "Start at sign-in" is an HKCU\...\Run value, and this installer runs elevated. An HKCU write from an
+; administrative install lands in the hive of whoever approved the UAC prompt — frequently not the
+; person who will use CloudDrive — so the entry would be created for the wrong account and the right
+; one would never launch the app. Inno Setup warns about this ("UsedUserAreasWarning") and the warning
+; is correct.
+;
+; The tray app registers itself instead, from StartupRegistration, running unelevated as the real user
+; and driven by the StartAtLogin setting. It also repairs a stale entry after an upgrade moves the
+; executable, which a one-shot installer write could never do.
 
 [Code]
 var

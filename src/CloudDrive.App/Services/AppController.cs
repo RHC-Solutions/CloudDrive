@@ -154,6 +154,12 @@ public sealed class AppController : IAsyncDisposable
         }
         Warnings = warnings;
 
+        // Reconcile the sign-in registration here rather than only when Settings is saved. The setting
+        // lives in the machine store, so it can be changed by another user, by the CLI, or by editing
+        // the JSON — and it is per-user registry state, so only this process, running as this user, can
+        // act on it. Also repairs a stale entry after an upgrade moved the executable.
+        ApplyStartupRegistration(_snapshot.Settings.StartAtLogin);
+
         SyncMappingList(_snapshot);
         StateRefreshed?.Invoke();
     }
@@ -206,6 +212,27 @@ public sealed class AppController : IAsyncDisposable
             {
                 existing.State = MountState.Unmounted;
             }
+        }
+    }
+
+    /// <summary>
+    /// Makes the "start at sign-in" setting actually do something.
+    ///
+    /// It previously did not: the checkbox was loaded, saved and persisted, and nothing ever wrote the
+    /// Run key. The installer wrote it instead — while elevated, so it landed in the approving
+    /// administrator's hive rather than the hive of the user who would run CloudDrive.
+    /// </summary>
+    private void ApplyStartupRegistration(bool enabled)
+    {
+        try
+        {
+            // The tray app's own path, not the service's: this registers the UI to appear at sign-in.
+            if (StartupRegistration.Apply(enabled, Environment.ProcessPath))
+                _log.Info(enabled ? "Registered CloudDrive to start at sign-in." : "Removed the start-at-sign-in entry.");
+        }
+        catch (Exception ex)
+        {
+            _log.Warn($"Could not update the start-at-sign-in entry: {ex.Message}");
         }
     }
 

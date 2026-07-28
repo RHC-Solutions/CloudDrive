@@ -31,17 +31,26 @@ if (-not $version) { throw 'No <Version> in Directory.Build.props.' }
 Write-Host "Building CloudDrive $version"
 
 # --- Prerequisites ------------------------------------------------------------------------------
+# Includes the per-user location, which is where winget puts Inno Setup by default — a machine-wide
+# install under Program Files is no longer the common case, and looking only there meant a correctly
+# installed compiler was reported as missing.
 $iscc = @(
+    "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe",
     "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
     "$env:ProgramFiles\Inno Setup 6\ISCC.exe"
-) | Where-Object { Test-Path $_ } | Select-Object -First 1
+) | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
 
 if (-not $iscc) {
     $iscc = (Get-Command 'ISCC.exe' -ErrorAction SilentlyContinue).Source
 }
 if (-not $iscc) {
-    throw 'Inno Setup 6 was not found. Install it from https://jrsoftware.org/isdl.php.'
+    throw @'
+Inno Setup 6 was not found. Install it with:
+  winget install JRSoftware.InnoSetup
+or from https://jrsoftware.org/isdl.php
+'@
 }
+Write-Host "Using $iscc"
 
 $winfsp = Join-Path $root 'third_party\winfsp\winfsp.msi'
 if (-not (Test-Path $winfsp)) {
