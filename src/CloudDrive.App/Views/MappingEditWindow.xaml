@@ -1,0 +1,132 @@
+<Window x:Class="CloudDrive.App.Views.MappingEditWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ui="http://schemas.modernwpf.com/2019"
+        xmlns:conv="clr-namespace:CloudDrive.App.Views"
+        ui:WindowHelper.UseModernWindowStyle="True"
+        Title="Mapping" Height="700" Width="580"
+        Icon="/Assets/clouddrive.ico"
+        Background="{StaticResource CD.Brush.BgPrimary}"
+        WindowStartupLocation="CenterOwner">
+
+    <Window.Resources>
+        <conv:StringToVisibilityConverter x:Key="StrToVis"/>
+    </Window.Resources>
+
+    <DockPanel>
+        <Border DockPanel.Dock="Top" Style="{StaticResource CD.Bar}" BorderThickness="0,0,0,1" Padding="20,12">
+            <StackPanel Orientation="Horizontal">
+                <Border Style="{StaticResource CD.AccentBar}" Height="24" Margin="0,0,12,0"/>
+                <StackPanel VerticalAlignment="Center">
+                    <TextBlock x:Name="HeaderText" Text="Add mapping" Style="{StaticResource CD.Heading}"/>
+                    <TextBlock Text="Where storage appears on this machine" Style="{StaticResource CD.Subtitle}"/>
+                </StackPanel>
+            </StackPanel>
+        </Border>
+
+        <Border DockPanel.Dock="Bottom" Style="{StaticResource CD.Bar}" BorderThickness="0,1,0,0" Padding="20,12">
+            <Grid>
+                <TextBlock x:Name="ErrorText" Foreground="{StaticResource CD.Brush.Danger}"
+                           TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,0,180,0"
+                           Visibility="{Binding Text, RelativeSource={RelativeSource Self},
+                                                Converter={StaticResource StrToVis}}"/>
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                    <Button Content="Cancel" Click="OnCancel" MinWidth="88" Margin="0,0,8,0"/>
+                    <Button x:Name="SaveButton" Content="Save" Click="OnSave"
+                            Style="{StaticResource CD.Button.Accent}" MinWidth="88"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="20,12">
+            <StackPanel>
+                <TextBlock Text="Account" Style="{StaticResource CD.SectionLabel}" Margin="0,0,0,6"/>
+                <ComboBox x:Name="AccountBox" SelectionChanged="OnAccountChanged"
+                          HorizontalAlignment="Stretch"/>
+
+                <TextBlock Text="Name" Style="{StaticResource CD.SectionLabel}"/>
+                <TextBox x:Name="NameBox" ui:ControlHelper.PlaceholderText="Backups, Media…"/>
+
+                <StackPanel x:Name="ContainerPanel">
+                    <TextBlock x:Name="ContainerLabel" Text="Bucket" Style="{StaticResource CD.SectionLabel}"/>
+                    <TextBox x:Name="ContainerBox"/>
+                </StackPanel>
+
+                <TextBlock Text="Folder inside it (optional)" Style="{StaticResource CD.SectionLabel}"/>
+                <TextBox x:Name="SubPathBox" ui:ControlHelper.PlaceholderText="projects/2026"/>
+
+                <TextBlock Text="Appears as" Style="{StaticResource CD.SectionLabel}"/>
+                <ComboBox x:Name="ModeBox" SelectionChanged="OnModeChanged" HorizontalAlignment="Stretch"/>
+                <TextBlock x:Name="ModeHint" Style="{StaticResource CD.Subtitle}" TextWrapping="Wrap"
+                           Margin="2,6,0,0"
+                           Visibility="{Binding Text, RelativeSource={RelativeSource Self},
+                                                Converter={StaticResource StrToVis}}"/>
+
+                <!-- Drive-letter mode -->
+                <StackPanel x:Name="DrivePanel">
+                    <TextBlock Text="Mount point" Style="{StaticResource CD.SectionLabel}"/>
+                    <StackPanel Orientation="Horizontal">
+                        <RadioButton x:Name="LetterRadio" Content="Drive letter" GroupName="Target"
+                                     IsChecked="True" Checked="OnTargetChanged" Margin="0,0,16,0"/>
+                        <RadioButton x:Name="DirectoryRadio" Content="Folder" GroupName="Target"
+                                     Checked="OnTargetChanged"/>
+                    </StackPanel>
+
+                    <StackPanel x:Name="LetterPanel" Margin="0,8,0,0">
+                        <ComboBox x:Name="LetterBox" Width="90" HorizontalAlignment="Left"/>
+                    </StackPanel>
+
+                    <StackPanel x:Name="DirectoryPanel" Margin="0,8,0,0">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBox x:Name="DirectoryBox" Grid.Column="0"/>
+                            <Button Grid.Column="1" Content="Browse…" Click="OnBrowseDirectory" Margin="8,0,0,0"/>
+                        </Grid>
+                        <TextBlock Style="{StaticResource CD.Subtitle}" TextWrapping="Wrap" Margin="2,4,0,0"
+                                   Text="The folder must not already exist: WinFsp creates it on mount and removes it on unmount."/>
+                    </StackPanel>
+
+                    <TextBlock Text="Hosted by" Style="{StaticResource CD.SectionLabel}"/>
+                    <ComboBox x:Name="HostBox" SelectionChanged="OnHostChanged" HorizontalAlignment="Stretch"/>
+                    <TextBlock x:Name="HostHint" Style="{StaticResource CD.Subtitle}" TextWrapping="Wrap"
+                               Margin="2,6,0,0"/>
+
+                    <CheckBox x:Name="NetworkDriveCheck" Content="Present as a network drive" Margin="0,14,0,0"/>
+                    <TextBlock Style="{StaticResource CD.Subtitle}" TextWrapping="Wrap" Margin="24,4,0,0"
+                               Text="Off by default, so the drive appears under &quot;Devices and drives&quot; like a local disk — the way Google Drive does. Turn it on only if an application misbehaves against the drive; a network drive also never gets a Recycle Bin."/>
+
+                    <CheckBox x:Name="DriveIconCheck" Content="Use the CloudDrive icon in Explorer"
+                              Margin="0,10,0,0" IsChecked="True"/>
+                </StackPanel>
+
+                <!-- On-demand mode -->
+                <StackPanel x:Name="OnDemandPanel">
+                    <TextBlock Text="Local folder" Style="{StaticResource CD.SectionLabel}"/>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBox x:Name="LocalFolderBox" Grid.Column="0"/>
+                        <Button Grid.Column="1" Content="Browse…" Click="OnBrowseFolder" Margin="8,0,0,0"/>
+                    </Grid>
+                    <TextBlock Style="{StaticResource CD.Subtitle}" TextWrapping="Wrap" Margin="2,4,0,0"
+                               Text="Leave blank for a default under your user profile. On-demand folders run in your session and disappear at sign-out."/>
+                </StackPanel>
+
+                <TextBlock Text="Options" Style="{StaticResource CD.SectionLabel}"/>
+                <CheckBox x:Name="AutoMountCheck" Content="Mount automatically" IsChecked="True"/>
+                <CheckBox x:Name="ReadOnlyCheck" Content="Read-only" Margin="0,8,0,0"/>
+                <CheckBox x:Name="NoUpdateCheck" Content="Never interrupt this mapping for an update"
+                          Margin="0,8,0,0"/>
+                <TextBlock Style="{StaticResource CD.Subtitle}" TextWrapping="Wrap" Margin="24,4,0,0"
+                           Text="For a mapping a backup job writes to, where ten quiet minutes is not proof that nothing is happening."/>
+
+                <TextBlock Text="" Height="8"/>
+            </StackPanel>
+        </ScrollViewer>
+    </DockPanel>
+</Window>

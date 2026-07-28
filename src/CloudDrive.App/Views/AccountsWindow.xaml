@@ -1,0 +1,64 @@
+<Window x:Class="CloudDrive.App.Views.AccountsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ui="http://schemas.modernwpf.com/2019"
+        xmlns:conv="clr-namespace:CloudDrive.App.Views"
+        ui:WindowHelper.UseModernWindowStyle="True"
+        Title="Accounts" Height="480" Width="760"
+        Icon="/Assets/clouddrive.ico"
+        Background="{StaticResource CD.Brush.BgPrimary}"
+        WindowStartupLocation="CenterOwner">
+
+    <Window.Resources>
+        <conv:NullToBoolConverter x:Key="NullToBool"/>
+    </Window.Resources>
+
+    <DockPanel>
+        <Border DockPanel.Dock="Top" Style="{StaticResource CD.Bar}" BorderThickness="0,0,0,1" Padding="20,12">
+            <Grid>
+                <StackPanel Orientation="Horizontal">
+                    <Border Style="{StaticResource CD.AccentBar}" Height="24" Margin="0,0,12,0"/>
+                    <StackPanel VerticalAlignment="Center">
+                        <TextBlock Text="Accounts" Style="{StaticResource CD.Heading}"/>
+                        <TextBlock Text="Each account is one login. Several mappings can share one."
+                                   Style="{StaticResource CD.Subtitle}"/>
+                    </StackPanel>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                    <Button Content="+ Add" Click="OnAdd" Style="{StaticResource CD.Button.Accent}" Margin="0,0,8,0"/>
+                    <Button Content="Edit" Click="OnEdit" Margin="0,0,8,0"
+                            IsEnabled="{Binding SelectedItem, ElementName=AccountList, Converter={StaticResource NullToBool}}"/>
+                    <Button Content="Delete" Click="OnDelete" Style="{StaticResource CD.Button.Danger}"
+                            IsEnabled="{Binding SelectedItem, ElementName=AccountList, Converter={StaticResource NullToBool}}"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <Border DockPanel.Dock="Bottom" Style="{StaticResource CD.Bar}" BorderThickness="0,1,0,0" Padding="20,12">
+            <Button Content="Close" Click="OnClose" HorizontalAlignment="Right" MinWidth="88"/>
+        </Border>
+
+        <ListView x:Name="AccountList" Margin="16" Background="Transparent"
+                  BorderBrush="{StaticResource CD.Brush.Border}"
+                  MouseDoubleClick="OnEdit">
+            <ListView.ItemContainerStyle>
+                <Style TargetType="ListViewItem" BasedOn="{StaticResource CD.MappingRow}"/>
+            </ListView.ItemContainerStyle>
+            <ListView.View>
+                <GridView>
+                    <GridViewColumn Header="Name" Width="170" DisplayMemberBinding="{Binding Name}"/>
+                    <GridViewColumn Header="Provider" Width="170" DisplayMemberBinding="{Binding ProviderName}"/>
+                    <GridViewColumn Header="Details" Width="230" DisplayMemberBinding="{Binding Summary}"/>
+                    <GridViewColumn Header="Mappings" Width="80" DisplayMemberBinding="{Binding MappingCount}"/>
+                    <GridViewColumn Header="Status" Width="90">
+                        <GridViewColumn.CellTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding StatusText}" Foreground="{Binding StatusBrush}"/>
+                            </DataTemplate>
+                        </GridViewColumn.CellTemplate>
+                    </GridViewColumn>
+                </GridView>
+            </ListView.View>
+        </ListView>
+    </DockPanel>
+</Window>

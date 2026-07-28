@@ -1,0 +1,119 @@
+<Window x:Class="CloudDrive.App.Views.NotificationTargetWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ui="http://schemas.modernwpf.com/2019"
+        xmlns:conv="clr-namespace:CloudDrive.App.Views"
+        ui:WindowHelper.UseModernWindowStyle="True"
+        Title="Alert target" Height="620" Width="560"
+        Icon="/Assets/clouddrive.ico"
+        Background="{StaticResource CD.Brush.BgPrimary}"
+        WindowStartupLocation="CenterOwner">
+
+    <Window.Resources>
+        <conv:StringToVisibilityConverter x:Key="StrToVis"/>
+    </Window.Resources>
+
+    <DockPanel>
+        <Border DockPanel.Dock="Top" Style="{StaticResource CD.Bar}" BorderThickness="0,0,0,1" Padding="20,12">
+            <StackPanel Orientation="Horizontal">
+                <Border Style="{StaticResource CD.AccentBar}" Height="24" Margin="0,0,12,0"/>
+                <StackPanel VerticalAlignment="Center">
+                    <TextBlock x:Name="HeaderText" Text="Add alert target" Style="{StaticResource CD.Heading}"/>
+                    <TextBlock Text="Where CloudDrive tells you something went wrong"
+                               Style="{StaticResource CD.Subtitle}"/>
+                </StackPanel>
+            </StackPanel>
+        </Border>
+
+        <Border DockPanel.Dock="Bottom" Style="{StaticResource CD.Bar}" BorderThickness="0,1,0,0" Padding="20,12">
+            <Grid>
+                <TextBlock x:Name="ErrorText" Foreground="{StaticResource CD.Brush.Danger}"
+                           TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,0,250,0"
+                           Visibility="{Binding Text, RelativeSource={RelativeSource Self},
+                                                Converter={StaticResource StrToVis}}"/>
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                    <Button Content="Send test" Click="OnTest" MinWidth="88" Margin="0,0,8,0"/>
+                    <Button Content="Cancel" Click="OnCancel" MinWidth="80" Margin="0,0,8,0"/>
+                    <Button x:Name="SaveButton" Content="Save" Click="OnSave"
+                            Style="{StaticResource CD.Button.Accent}" MinWidth="80"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="20,12">
+            <StackPanel>
+                <TextBlock Text="Channel" Style="{StaticResource CD.SectionLabel}" Margin="0,0,0,6"/>
+                <ComboBox x:Name="KindBox" SelectionChanged="OnKindChanged" HorizontalAlignment="Stretch"/>
+
+                <TextBlock Text="Name" Style="{StaticResource CD.SectionLabel}"/>
+                <TextBox x:Name="NameBox" ui:ControlHelper.PlaceholderText="Ops channel, On-call email…"/>
+
+                <CheckBox x:Name="EnabledCheck" Content="Enabled" IsChecked="True" Margin="0,14,0,0"/>
+
+                <TextBlock Text="Send alerts from severity" Style="{StaticResource CD.SectionLabel}"/>
+                <ComboBox x:Name="SeverityBox" Width="200" HorizontalAlignment="Left"/>
+                <TextBlock Style="{StaticResource CD.Subtitle}" TextWrapping="Wrap" Margin="2,6,0,0"
+                           Text="Warning is a good default: it covers a mount that dropped and recovered, and everything worse, without a message for every routine success."/>
+
+                <!-- Telegram -->
+                <StackPanel x:Name="TelegramPanel">
+                    <TextBlock Text="Bot token" Style="{StaticResource CD.SectionLabel}"/>
+                    <PasswordBox x:Name="TelegramTokenBox"/>
+                    <TextBlock x:Name="TelegramTokenHint" Style="{StaticResource CD.Subtitle}"
+                               TextWrapping="Wrap" Margin="2,4,0,0"
+                               Text="Create a bot with @BotFather. The token looks like 123456789:AA…"/>
+                    <TextBlock Text="Chat id" Style="{StaticResource CD.SectionLabel}"/>
+                    <TextBox x:Name="TelegramChatBox"/>
+                    <TextBlock Style="{StaticResource CD.Subtitle}" TextWrapping="Wrap" Margin="2,4,0,0"
+                               Text="Message the bot once, then read the id from api.telegram.org/bot&lt;token&gt;/getUpdates. Add the bot to a group first if you are sending there."/>
+                    <TextBlock Text="Topic id (optional)" Style="{StaticResource CD.SectionLabel}"/>
+                    <TextBox x:Name="TelegramThreadBox" Width="140" HorizontalAlignment="Left"/>
+                </StackPanel>
+
+                <!-- Slack -->
+                <StackPanel x:Name="SlackPanel">
+                    <TextBlock Text="Incoming webhook URL" Style="{StaticResource CD.SectionLabel}"/>
+                    <PasswordBox x:Name="SlackWebhookBox"/>
+                    <TextBlock x:Name="SlackWebhookHint" Style="{StaticResource CD.Subtitle}"
+                               TextWrapping="Wrap" Margin="2,4,0,0"
+                               Text="The simplest option. A webhook is permanently bound to the one channel it was created for."/>
+                    <TextBlock Text="…or a bot token" Style="{StaticResource CD.SectionLabel}"/>
+                    <PasswordBox x:Name="SlackTokenBox"/>
+                    <TextBlock Text="Channel (with a bot token)" Style="{StaticResource CD.SectionLabel}"/>
+                    <TextBox x:Name="SlackChannelBox" ui:ControlHelper.PlaceholderText="#alerts"/>
+                </StackPanel>
+
+                <!-- Email -->
+                <StackPanel x:Name="EmailPanel">
+                    <TextBlock Text="SMTP server" Style="{StaticResource CD.SectionLabel}"/>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBox x:Name="SmtpHostBox" Grid.Column="0"/>
+                        <TextBox x:Name="SmtpPortBox" Grid.Column="1" Width="80" Margin="8,0,0,0"/>
+                    </Grid>
+                    <CheckBox x:Name="SmtpTlsCheck" Content="Use TLS" IsChecked="True" Margin="0,10,0,0"/>
+                    <TextBlock Style="{StaticResource CD.Subtitle}" TextWrapping="Wrap" Margin="24,4,0,0"
+                               Text="Port 465 uses implicit TLS; 587 and 25 negotiate STARTTLS. CloudDrive picks the right one from the port."/>
+
+                    <TextBlock Text="Username (blank for an open relay)" Style="{StaticResource CD.SectionLabel}"/>
+                    <TextBox x:Name="SmtpUserBox"/>
+                    <TextBlock Text="Password" Style="{StaticResource CD.SectionLabel}"/>
+                    <PasswordBox x:Name="SmtpPasswordBox"/>
+                    <TextBlock x:Name="SmtpPasswordHint" Style="{StaticResource CD.Subtitle}"
+                               TextWrapping="Wrap" Margin="2,4,0,0"/>
+
+                    <TextBlock Text="From" Style="{StaticResource CD.SectionLabel}"/>
+                    <TextBox x:Name="EmailFromBox" ui:ControlHelper.PlaceholderText="clouddrive@example.com"/>
+                    <TextBlock Text="To (one per line)" Style="{StaticResource CD.SectionLabel}"/>
+                    <TextBox x:Name="EmailToBox" AcceptsReturn="True" TextWrapping="Wrap"
+                             Height="72" VerticalScrollBarVisibility="Auto"/>
+                </StackPanel>
+
+                <TextBlock Text="" Height="8"/>
+            </StackPanel>
+        </ScrollViewer>
+    </DockPanel>
+</Window>

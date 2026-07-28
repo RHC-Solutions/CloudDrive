@@ -1,0 +1,188 @@
+<Window x:Class="CloudDrive.App.Views.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:ui="http://schemas.modernwpf.com/2019"
+        xmlns:conv="clr-namespace:CloudDrive.App.Views"
+        mc:Ignorable="d"
+        ui:WindowHelper.UseModernWindowStyle="True"
+        Title="CloudDrive" Height="660" Width="1040" MinWidth="820" MinHeight="480"
+        Icon="/Assets/clouddrive.ico"
+        Background="{StaticResource CD.Brush.BgPrimary}"
+        WindowStartupLocation="CenterScreen">
+
+    <Window.Resources>
+        <conv:NullToBoolConverter x:Key="NullToBool"/>
+        <conv:BoolToVisibilityConverter x:Key="BoolToVis"/>
+        <conv:CountToVisibilityConverter x:Key="CountToVis"/>
+        <conv:LinesConverter x:Key="Lines"/>
+
+        <!-- Right-click menu for a mapping row. Binding through PlacementTarget is what makes the
+             shared menu instance act on the row that opened it rather than a stale DataContext. -->
+        <ContextMenu x:Key="MappingRowMenu"
+                     DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}">
+            <MenuItem Header="Mount" Click="OnMount" FontWeight="SemiBold"
+                      IsEnabled="{Binding CanMount}"/>
+            <MenuItem Header="Unmount" Click="OnUnmount" IsEnabled="{Binding CanUnmount}"/>
+            <Separator/>
+            <MenuItem Header="Edit…" Click="OnEditMapping"/>
+            <MenuItem Header="Delete" Click="OnDeleteMapping"/>
+            <Separator/>
+            <MenuItem Header="Open in Explorer" Click="OnOpenInExplorer"/>
+            <MenuItem Header="Copy local path" Click="OnCopyPath"/>
+        </ContextMenu>
+    </Window.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*" MinHeight="140"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="200" MinHeight="90"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <Border Grid.Row="0" Style="{StaticResource CD.Bar}" BorderThickness="0,0,0,1" Padding="20,14">
+            <Grid>
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <Border Style="{StaticResource CD.AccentBar}" Height="26" Margin="0,0,12,0"/>
+                    <Image Source="/Assets/logo.png" Width="24" Height="24" Margin="0,0,10,0"
+                           RenderOptions.BitmapScalingMode="HighQuality"/>
+                    <StackPanel VerticalAlignment="Center">
+                        <TextBlock Text="CloudDrive" Style="{StaticResource CD.Heading}"/>
+                        <TextBlock Text="Mount any cloud or server as a Windows drive"
+                                   Style="{StaticResource CD.Subtitle}"/>
+                    </StackPanel>
+                </StackPanel>
+
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                    <Button Content="+ Add mapping" Click="OnAddMapping"
+                            Style="{StaticResource CD.Button.Accent}" Margin="0,0,8,0"
+                            IsEnabled="{Binding IsAdministrator}"/>
+                    <Button Content="Accounts" Click="OnAccounts" Margin="0,0,8,0"/>
+                    <Button Content="Edit" Click="OnEditMapping" Margin="0,0,8,0"
+                            IsEnabled="{Binding SelectedMapping, Converter={StaticResource NullToBool}}"/>
+                    <Button Content="Delete" Click="OnDeleteMapping" Style="{StaticResource CD.Button.Danger}"
+                            Margin="0,0,8,0"
+                            IsEnabled="{Binding SelectedMapping, Converter={StaticResource NullToBool}}"/>
+                    <Button Content="Settings" Click="OnSettings" Margin="0,0,8,0"/>
+                    <Button Content="About" Click="OnAbout"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- Warnings: no service, no WinFsp, no rclone, an account needing re-authorisation -->
+        <Border Grid.Row="1" Background="#33FBBF24" BorderBrush="{StaticResource CD.Brush.Warning}"
+                BorderThickness="1" Padding="12,8" Margin="16,12,16,0" CornerRadius="6"
+                Visibility="{Binding Warnings.Count, Converter={StaticResource CountToVis}}">
+            <Grid>
+                <TextBlock Text="{Binding Warnings, Converter={StaticResource Lines}}"
+                           TextWrapping="Wrap" Foreground="{StaticResource CD.Brush.Warning}"
+                           Margin="0,0,120,0"/>
+                <Button Content="Start service" Click="OnStartService"
+                        HorizontalAlignment="Right" VerticalAlignment="Center" Padding="10,4"
+                        Visibility="{Binding ShowStartServiceButton, Converter={StaticResource BoolToVis}}"/>
+            </Grid>
+        </Border>
+
+        <!-- Mappings -->
+        <ListView Grid.Row="2" Margin="16,12,16,0" Background="Transparent"
+                  BorderBrush="{StaticResource CD.Brush.Border}"
+                  ItemsSource="{Binding Mappings}" SelectedItem="{Binding SelectedMapping}"
+                  PreviewMouseRightButtonDown="OnListPreviewRightClick"
+                  MouseDoubleClick="OnEditMapping">
+            <ListView.ItemContainerStyle>
+                <Style TargetType="ListViewItem" BasedOn="{StaticResource CD.MappingRow}">
+                    <Setter Property="ContextMenu" Value="{StaticResource MappingRowMenu}"/>
+                    <Setter Property="ToolTip" Value="{Binding Tooltip}"/>
+                </Style>
+            </ListView.ItemContainerStyle>
+            <ListView.View>
+                <GridView>
+                    <GridViewColumn Header="Name" Width="150" DisplayMemberBinding="{Binding Name}"/>
+                    <GridViewColumn Header="Provider" Width="140">
+                        <GridViewColumn.CellTemplate>
+                            <DataTemplate>
+                                <Border Style="{StaticResource CD.Chip}" Background="{Binding ProviderBrush}">
+                                    <TextBlock Text="{Binding ProviderName}" FontSize="11"
+                                               Foreground="White" FontWeight="SemiBold"/>
+                                </Border>
+                            </DataTemplate>
+                        </GridViewColumn.CellTemplate>
+                    </GridViewColumn>
+                    <GridViewColumn Header="Account" Width="130" DisplayMemberBinding="{Binding AccountName}"/>
+                    <GridViewColumn Header="Remote" Width="150" DisplayMemberBinding="{Binding Location}"/>
+                    <GridViewColumn Header="Mode" Width="85" DisplayMemberBinding="{Binding ModeText}"/>
+                    <GridViewColumn Header="Where" Width="110" DisplayMemberBinding="{Binding Target}"/>
+                    <GridViewColumn Header="Status" Width="95">
+                        <GridViewColumn.CellTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding StateText}" Foreground="{Binding StateBrush}"
+                                           FontWeight="SemiBold"/>
+                            </DataTemplate>
+                        </GridViewColumn.CellTemplate>
+                    </GridViewColumn>
+                    <GridViewColumn Header="" Width="160">
+                        <GridViewColumn.CellTemplate>
+                            <DataTemplate>
+                                <StackPanel Orientation="Horizontal">
+                                    <Button Content="Mount" Click="OnMount"
+                                            Style="{StaticResource CD.Button.Accent}"
+                                            Padding="10,3" Margin="0,0,6,0" MinWidth="70"
+                                            IsEnabled="{Binding CanMount}"/>
+                                    <Button Content="Unmount" Click="OnUnmount"
+                                            Padding="10,3" MinWidth="70"
+                                            IsEnabled="{Binding CanUnmount}"/>
+                                </StackPanel>
+                            </DataTemplate>
+                        </GridViewColumn.CellTemplate>
+                    </GridViewColumn>
+                </GridView>
+            </ListView.View>
+        </ListView>
+
+        <!-- Drag handle to resize the activity log -->
+        <GridSplitter Grid.Row="3" Height="8" HorizontalAlignment="Stretch" VerticalAlignment="Center"
+                      Background="Transparent" ResizeBehavior="PreviousAndNext" ResizeDirection="Rows"
+                      Margin="16,4"/>
+
+        <!-- Activity log -->
+        <Border Grid.Row="4" Style="{StaticResource CD.Bar}" BorderThickness="1" CornerRadius="8"
+                Margin="16,0,16,8">
+            <DockPanel>
+                <Border DockPanel.Dock="Top" Background="{StaticResource CD.Brush.BgTertiary}"
+                        CornerRadius="8,8,0,0" Padding="12,6">
+                    <Grid>
+                        <TextBlock Text="Activity log" Foreground="{StaticResource CD.Brush.TextSecondary}"
+                                   FontWeight="SemiBold" FontSize="12"/>
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                            <Button Content="Open log folder" Click="OnOpenLogs" Padding="8,1" FontSize="11"
+                                    Background="Transparent" Margin="0,0,6,0"/>
+                            <Button Content="Clear" Click="OnClearLog" Padding="8,1" FontSize="11"
+                                    Background="Transparent"/>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+                <TextBox x:Name="LogBox" IsReadOnly="True"
+                         Background="#FF141428" Foreground="#FFDCDCDC" BorderThickness="0"
+                         VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
+                         FontFamily="{StaticResource CD.Font.Mono}" FontSize="12" TextWrapping="NoWrap"
+                         Padding="10,6"
+                         TextChanged="OnLogTextChanged" ScrollViewer.ScrollChanged="OnLogScrollChanged"/>
+            </DockPanel>
+        </Border>
+
+        <!-- Status bar -->
+        <Border Grid.Row="5" Style="{StaticResource CD.Bar}" BorderThickness="0,1,0,0" Padding="16,6">
+            <Grid>
+                <TextBlock Text="{Binding StatusLine}" Style="{StaticResource CD.Subtitle}"
+                           VerticalAlignment="Center"/>
+                <TextBlock Text="{Binding VersionLine}" Style="{StaticResource CD.Subtitle}"
+                           HorizontalAlignment="Right" VerticalAlignment="Center"/>
+            </Grid>
+        </Border>
+    </Grid>
+</Window>

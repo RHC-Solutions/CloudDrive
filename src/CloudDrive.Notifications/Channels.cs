@@ -258,8 +258,14 @@ public sealed class EmailChannel : INotificationChannel
     public async Task SendAsync(
         Alert alert, NotificationTarget target, NotificationSecret secret, CancellationToken ct)
     {
+        // Re-check rather than trusting that Validate ran. A target can be edited by hand in
+        // settings.json, and reaching MailboxAddress.Parse with null would surface as an
+        // ArgumentNullException from inside MimeKit rather than as something an admin can act on.
+        var problem = Validate(target, secret);
+        if (problem is not null) throw new InvalidOperationException(problem);
+
         var message = new MimeMessage();
-        message.From.Add(MailboxAddress.Parse(target.EmailFrom));
+        message.From.Add(MailboxAddress.Parse(target.EmailFrom!));
         foreach (var to in target.EmailTo) message.To.Add(MailboxAddress.Parse(to));
 
         // The machine name goes in the subject because these land in a mailbox alongside alerts from
@@ -276,7 +282,7 @@ public sealed class EmailChannel : INotificationChannel
             : target.SmtpPort == 465 ? SecureSocketOptions.SslOnConnect
             : SecureSocketOptions.StartTls;
 
-        await client.ConnectAsync(target.SmtpHost, target.SmtpPort, options, ct).ConfigureAwait(false);
+        await client.ConnectAsync(target.SmtpHost!, target.SmtpPort, options, ct).ConfigureAwait(false);
 
         if (!string.IsNullOrWhiteSpace(target.SmtpUsername))
             await client.AuthenticateAsync(target.SmtpUsername, secret.SmtpPassword ?? string.Empty, ct)

@@ -1,0 +1,204 @@
+<Window x:Class="CloudDrive.App.Views.SettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ui="http://schemas.modernwpf.com/2019"
+        xmlns:conv="clr-namespace:CloudDrive.App.Views"
+        ui:WindowHelper.UseModernWindowStyle="True"
+        Title="Settings" Height="700" Width="720"
+        Icon="/Assets/clouddrive.ico"
+        Background="{StaticResource CD.Brush.BgPrimary}"
+        WindowStartupLocation="CenterOwner">
+
+    <Window.Resources>
+        <conv:StringToVisibilityConverter x:Key="StrToVis"/>
+        <conv:NullToBoolConverter x:Key="NullToBool"/>
+    </Window.Resources>
+
+    <DockPanel>
+        <Border DockPanel.Dock="Top" Style="{StaticResource CD.Bar}" BorderThickness="0,0,0,1" Padding="20,12">
+            <StackPanel Orientation="Horizontal">
+                <Border Style="{StaticResource CD.AccentBar}" Height="24" Margin="0,0,12,0"/>
+                <StackPanel VerticalAlignment="Center">
+                    <TextBlock Text="Settings" Style="{StaticResource CD.Heading}"/>
+                    <TextBlock Text="These apply to the whole machine" Style="{StaticResource CD.Subtitle}"/>
+                </StackPanel>
+            </StackPanel>
+        </Border>
+
+        <Border DockPanel.Dock="Bottom" Style="{StaticResource CD.Bar}" BorderThickness="0,1,0,0" Padding="20,12">
+            <Grid>
+                <TextBlock x:Name="ErrorText" Foreground="{StaticResource CD.Brush.Danger}"
+                           TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,0,180,0"
+                           Visibility="{Binding Text, RelativeSource={RelativeSource Self},
+                                                Converter={StaticResource StrToVis}}"/>
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                    <Button Content="Cancel" Click="OnCancel" MinWidth="88" Margin="0,0,8,0"/>
+                    <Button x:Name="SaveButton" Content="Save" Click="OnSave"
+                            Style="{StaticResource CD.Button.Accent}" MinWidth="88"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <TabControl Margin="12" Background="Transparent" BorderThickness="0">
+
+            <!-- ============================================================ General -->
+            <TabItem Header="General">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="8,4">
+                    <StackPanel>
+                        <TextBlock Text="Application" Style="{StaticResource CD.SectionLabel}"/>
+                        <CheckBox x:Name="StartAtLoginCheck" Content="Start CloudDrive at sign-in"/>
+                        <CheckBox x:Name="MinimizeToTrayCheck" Content="Closing the window hides it to the tray"
+                                  Margin="0,8,0,0"/>
+                        <CheckBox x:Name="VerboseCheck" Content="Verbose logging (rclone at DEBUG level)"
+                                  Margin="0,8,0,0"/>
+
+                        <TextBlock Text="Log retention (days)" Style="{StaticResource CD.SectionLabel}"/>
+                        <TextBox x:Name="LogDaysBox" Width="100" HorizontalAlignment="Left"/>
+
+                        <TextBlock Text="Protocol selection" Style="{StaticResource CD.SectionLabel}"/>
+                        <TextBlock Style="{StaticResource CD.Subtitle}" TextWrapping="Wrap"
+                                   Text="For accounts set to Auto, CloudDrive transfers a real payload over each reachable protocol and uses whichever is fastest from this machine."/>
+                        <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                            <TextBlock Text="Test size (MiB)" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                            <TextBox x:Name="BenchmarkSizeBox" Width="80"/>
+                            <TextBlock Text="Cache the result for (days)" VerticalAlignment="Center"
+                                       Margin="20,0,8,0"/>
+                            <TextBox x:Name="ProtocolCacheDaysBox" Width="80"/>
+                        </StackPanel>
+                        <CheckBox x:Name="AlwaysBenchmarkCheck" Content="Re-measure on every mount"
+                                  Margin="0,10,0,0"/>
+                        <TextBlock Style="{StaticResource CD.Subtitle}" TextWrapping="Wrap" Margin="24,4,0,0"
+                                   Text="Useful on a laptop that moves between very different networks; otherwise it just costs seconds on every mount."/>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+
+            <!-- ============================================================ Updates -->
+            <TabItem Header="Updates">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="8,4">
+                    <StackPanel>
+                        <TextBlock Text="CloudDrive" Style="{StaticResource CD.SectionLabel}"/>
+                        <CheckBox x:Name="CheckUpdatesCheck" Content="Check for new releases"/>
+                        <CheckBox x:Name="AutoInstallCheck" Content="Install automatically once the machine is idle"
+                                  Margin="0,8,0,0"/>
+                        <TextBlock Style="{StaticResource CD.Subtitle}" TextWrapping="Wrap" Margin="24,4,0,0"
+                                   Text="Applying an update drops every mount, so it waits until nothing has moved bytes, no file is open on a mount, and — if anyone is signed in — the keyboard has been quiet."/>
+                        <CheckBox x:Name="PrereleaseCheck" Content="Include prereleases" Margin="0,8,0,0"/>
+
+                        <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                            <TextBlock Text="Check every (hours)" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                            <TextBox x:Name="CheckHoursBox" Width="70"/>
+                            <TextBlock Text="Idle for (minutes)" VerticalAlignment="Center" Margin="20,0,8,0"/>
+                            <TextBox x:Name="IdleMinutesBox" Width="70"/>
+                        </StackPanel>
+
+                        <TextBlock Text="Maintenance window (optional, 24h local)"
+                                   Style="{StaticResource CD.SectionLabel}"/>
+                        <StackPanel Orientation="Horizontal">
+                            <TextBox x:Name="WindowStartBox" Width="80"
+                                     ui:ControlHelper.PlaceholderText="22:00"/>
+                            <TextBlock Text="to" VerticalAlignment="Center" Margin="8,0"/>
+                            <TextBox x:Name="WindowEndBox" Width="80" ui:ControlHelper.PlaceholderText="04:00"/>
+                        </StackPanel>
+
+                        <TextBlock Text="Tell me when" Style="{StaticResource CD.SectionLabel}"/>
+                        <CheckBox x:Name="NotifyAvailableCheck" Content="A new release is found"/>
+                        <CheckBox x:Name="NotifyBeforeCheck" Content="An update is about to be applied"
+                                  Margin="0,8,0,0"/>
+                        <CheckBox x:Name="NotifyAfterCheck" Content="An update has finished" Margin="0,8,0,0"/>
+
+                        <Button Content="Check now" Click="OnCheckUpdate" HorizontalAlignment="Left"
+                                Margin="0,16,0,0"/>
+                        <TextBlock x:Name="UpdateStatus" Style="{StaticResource CD.Subtitle}"
+                                   TextWrapping="Wrap" Margin="2,8,0,0"/>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+
+            <!-- ============================================================ Tools -->
+            <TabItem Header="Tools">
+                <DockPanel Margin="8,4">
+                    <StackPanel DockPanel.Dock="Top">
+                        <TextBlock Style="{StaticResource CD.Subtitle}" TextWrapping="Wrap"
+                                   Text="CloudDrive keeps the binaries it depends on in one managed directory and checks each vendor for updates. Downloads are verified against the vendor's checksum and Authenticode signature before use."/>
+                        <TextBlock x:Name="ToolsPathText" Style="{StaticResource CD.Subtitle}"
+                                   TextWrapping="Wrap" Margin="0,8,0,0"/>
+                        <CheckBox x:Name="AddToPathCheck" Content="Add the tools directory to the system PATH"
+                                  Margin="0,10,0,0"/>
+                        <CheckBox x:Name="ToolAutoUpdateCheck" Content="Install tool updates automatically once idle"
+                                  Margin="0,8,0,8"/>
+                    </StackPanel>
+
+                    <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,10,0,0">
+                        <Button Content="Check for tool updates" Click="OnCheckTools" Margin="0,0,8,0"/>
+                        <Button Content="Roll back selected" Click="OnRollbackTool"
+                                IsEnabled="{Binding SelectedItem, ElementName=ToolList, Converter={StaticResource NullToBool}}"/>
+                    </StackPanel>
+
+                    <ListView x:Name="ToolList" Background="Transparent"
+                              BorderBrush="{StaticResource CD.Brush.Border}">
+                        <ListView.ItemContainerStyle>
+                            <Style TargetType="ListViewItem" BasedOn="{StaticResource CD.MappingRow}"/>
+                        </ListView.ItemContainerStyle>
+                        <ListView.View>
+                            <GridView>
+                                <GridViewColumn Header="Tool" Width="120" DisplayMemberBinding="{Binding DisplayName}"/>
+                                <GridViewColumn Header="Installed" Width="100" DisplayMemberBinding="{Binding InstalledVersion}"/>
+                                <GridViewColumn Header="Available" Width="100" DisplayMemberBinding="{Binding AvailableVersion}"/>
+                                <GridViewColumn Header="Purpose" Width="300" DisplayMemberBinding="{Binding Purpose}"/>
+                            </GridView>
+                        </ListView.View>
+                    </ListView>
+                </DockPanel>
+            </TabItem>
+
+            <!-- ============================================================ Alerts -->
+            <TabItem Header="Alerts">
+                <DockPanel Margin="8,4">
+                    <StackPanel DockPanel.Dock="Top">
+                        <CheckBox x:Name="AlertsEnabledCheck" Content="Send alerts"/>
+                        <TextBlock Style="{StaticResource CD.Subtitle}" TextWrapping="Wrap" Margin="24,4,0,0"
+                                   Text="Sent by the service, so they keep working with nobody signed in — which is the only time an alert is worth having."/>
+                        <StackPanel Orientation="Horizontal" Margin="0,12,0,8">
+                            <TextBlock Text="Repeat cooldown (minutes)" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                            <TextBox x:Name="CooldownBox" Width="70"/>
+                            <TextBlock Text="Keep undelivered for (hours)" VerticalAlignment="Center"
+                                       Margin="20,0,8,0"/>
+                            <TextBox x:Name="SpoolHoursBox" Width="70"/>
+                        </StackPanel>
+                    </StackPanel>
+
+                    <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,10,0,0">
+                        <Button Content="+ Add" Click="OnAddTarget" Style="{StaticResource CD.Button.Accent}"
+                                Margin="0,0,8,0"/>
+                        <Button Content="Edit" Click="OnEditTarget" Margin="0,0,8,0"
+                                IsEnabled="{Binding SelectedItem, ElementName=TargetList, Converter={StaticResource NullToBool}}"/>
+                        <Button Content="Delete" Click="OnDeleteTarget" Style="{StaticResource CD.Button.Danger}"
+                                Margin="0,0,8,0"
+                                IsEnabled="{Binding SelectedItem, ElementName=TargetList, Converter={StaticResource NullToBool}}"/>
+                        <Button Content="Send test" Click="OnTestTarget"
+                                IsEnabled="{Binding SelectedItem, ElementName=TargetList, Converter={StaticResource NullToBool}}"/>
+                    </StackPanel>
+
+                    <ListView x:Name="TargetList" Background="Transparent"
+                              BorderBrush="{StaticResource CD.Brush.Border}"
+                              MouseDoubleClick="OnEditTarget">
+                        <ListView.ItemContainerStyle>
+                            <Style TargetType="ListViewItem" BasedOn="{StaticResource CD.MappingRow}"/>
+                        </ListView.ItemContainerStyle>
+                        <ListView.View>
+                            <GridView>
+                                <GridViewColumn Header="Name" Width="160" DisplayMemberBinding="{Binding Name}"/>
+                                <GridViewColumn Header="Channel" Width="100" DisplayMemberBinding="{Binding Kind}"/>
+                                <GridViewColumn Header="From severity" Width="120"
+                                                DisplayMemberBinding="{Binding MinimumSeverity}"/>
+                                <GridViewColumn Header="Enabled" Width="80" DisplayMemberBinding="{Binding Enabled}"/>
+                            </GridView>
+                        </ListView.View>
+                    </ListView>
+                </DockPanel>
+            </TabItem>
+
+        </TabControl>
+    </DockPanel>
+</Window>

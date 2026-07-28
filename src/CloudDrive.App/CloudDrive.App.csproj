@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <!--
+      The floor is 1709 rather than 19041 because that is what the Cloud Files API actually needs,
+      and the tray app runs happily on anything from Windows 10 1607 upward — the on-demand mode
+      simply hides itself when OsCapabilities says the API is absent.
+    -->
+    <SupportedOSPlatformVersion>10.0.17763.0</SupportedOSPlatformVersion>
+    <UseWPF>true</UseWPF>
+    <AssemblyName>CloudDrive</AssemblyName>
+    <RootNamespace>CloudDrive.App</RootNamespace>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\clouddrive.ico</ApplicationIcon>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\CloudDrive.Core\CloudDrive.Core.csproj" />
+    <ProjectReference Include="..\CloudDrive.CloudFiles\CloudDrive.CloudFiles.csproj" />
+    <ProjectReference Include="..\CloudDrive.Ipc\CloudDrive.Ipc.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Resource Include="Assets\clouddrive.ico" />
+    <Resource Include="Assets\logo.png" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
+    <PackageReference Include="Hardcodet.NotifyIcon.Wpf" Version="2.0.1" />
+    <PackageReference Include="ModernWpfUI" Version="0.9.6" />
+  </ItemGroup>
+
+</Project>

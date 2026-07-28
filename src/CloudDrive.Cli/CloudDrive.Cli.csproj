@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    No OS-version TFM and no CloudFiles reference, for the same reason as the service: this has to
+    run on Server Core 2016, where there is no desktop shell and therefore no tray app at all. On
+    that SKU the CLI is not a convenience, it is the only way to configure CloudDrive.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>clouddrive</AssemblyName>
+    <RootNamespace>CloudDrive.Cli</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\CloudDrive.Core\CloudDrive.Core.csproj" />
+    <ProjectReference Include="..\CloudDrive.Ipc\CloudDrive.Ipc.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,20 @@
+<Application x:Class="CloudDrive.App.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ui="http://schemas.modernwpf.com/2019"
+             ShutdownMode="OnExplicitShutdown">
+    <!--
+        OnExplicitShutdown, not OnLastWindowClose: this app lives in the tray, and closing the main
+        window is meant to hide it rather than quit. Exit happens from the tray menu.
+    -->
+    <Application.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ui:ThemeResources RequestedTheme="Dark"/>
+                <ui:XamlControlsResources/>
+                <!-- Last, so the CloudDrive palette wins over ModernWpf's defaults. -->
+                <ResourceDictionary Source="Themes/Theme.xaml"/>
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
+    </Application.Resources>
+</Application>

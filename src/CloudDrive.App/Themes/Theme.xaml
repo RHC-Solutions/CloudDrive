@@ -1,0 +1,185 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!--
+        WasabiDrive's dark design system, carried over wholesale: the same layout, the same component
+        styles, the same row and button treatments. Only the accent has moved, from WasabiDrive's
+        pink to RHC Solutions' orange, so the chrome agrees with the four-square mark in the header.
+        The other three brand colours are used where they happen to fit a semantic role — RHC green
+        reads as success, RHC teal as information — rather than being sprinkled about for their own sake.
+    -->
+    <Color x:Key="CD.Color.Accent">#FFEC6327</Color>
+    <!-- ModernWpf tints its chrome from SystemAccentColor; match the app accent. -->
+    <Color x:Key="SystemAccentColor">#FFEC6327</Color>
+
+    <SolidColorBrush x:Key="CD.Brush.BgPrimary"   Color="#FF1A1A2E"/>
+    <SolidColorBrush x:Key="CD.Brush.BgSecondary" Color="#FF16213E"/>
+    <SolidColorBrush x:Key="CD.Brush.BgTertiary"  Color="#FF0F3460"/>
+    <SolidColorBrush x:Key="CD.Brush.TextPrimary"   Color="#FFEAEAEA"/>
+    <SolidColorBrush x:Key="CD.Brush.TextSecondary" Color="#FFA0A0A0"/>
+
+    <SolidColorBrush x:Key="CD.Brush.Accent"      Color="#FFEC6327"/>
+    <SolidColorBrush x:Key="CD.Brush.AccentHover" Color="#FFF57F4A"/>
+    <SolidColorBrush x:Key="CD.Brush.AccentMuted" Color="#33EC6327"/>
+
+    <!-- RHC green and teal, doing semantic duty. -->
+    <SolidColorBrush x:Key="CD.Brush.Success" Color="#FF93C842"/>
+    <SolidColorBrush x:Key="CD.Brush.Info"    Color="#FF47C2BE"/>
+    <SolidColorBrush x:Key="CD.Brush.Warning" Color="#FFFBBF24"/>
+    <SolidColorBrush x:Key="CD.Brush.Danger"  Color="#FFEF4444"/>
+
+    <SolidColorBrush x:Key="CD.Brush.Border"      Color="#FF2A2A4A"/>
+    <SolidColorBrush x:Key="CD.Brush.RowSelected" Color="#1AEC6327"/>
+    <SolidColorBrush x:Key="CD.Brush.RowHover"    Color="#22243E"/>
+
+    <FontFamily x:Key="CD.Font.Sans">Segoe UI</FontFamily>
+    <FontFamily x:Key="CD.Font.Mono">Cascadia Mono, Consolas, Courier New</FontFamily>
+
+    <!-- Plain TextBlocks default to light text on the dark background. -->
+    <Style TargetType="TextBlock">
+        <Setter Property="Foreground" Value="{StaticResource CD.Brush.TextPrimary}"/>
+        <Setter Property="FontFamily" Value="{StaticResource CD.Font.Sans}"/>
+        <Setter Property="FontSize" Value="13"/>
+    </Style>
+
+    <!-- Base button: borderless, rounded, tertiary fill. -->
+    <Style x:Key="CD.Button" TargetType="Button">
+        <Setter Property="Background" Value="{StaticResource CD.Brush.BgTertiary}"/>
+        <Setter Property="Foreground" Value="{StaticResource CD.Brush.TextPrimary}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="BorderBrush" Value="Transparent"/>
+        <Setter Property="Padding" Value="14,7"/>
+        <Setter Property="FontFamily" Value="{StaticResource CD.Font.Sans}"/>
+        <Setter Property="FontSize" Value="13"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="bd" Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}"
+                            CornerRadius="6">
+                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
+                                          Margin="{TemplateBinding Padding}"/>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="bd" Property="BorderBrush" Value="{StaticResource CD.Brush.Border}"/>
+                        </Trigger>
+                        <Trigger Property="IsPressed" Value="True">
+                            <Setter TargetName="bd" Property="Opacity" Value="0.85"/>
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter TargetName="bd" Property="Opacity" Value="0.5"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style TargetType="Button" BasedOn="{StaticResource CD.Button}"/>
+
+    <Style x:Key="CD.Button.Accent" TargetType="Button" BasedOn="{StaticResource CD.Button}">
+        <Setter Property="Background" Value="{StaticResource CD.Brush.Accent}"/>
+        <Setter Property="Foreground" Value="White"/>
+        <Setter Property="FontWeight" Value="SemiBold"/>
+        <Style.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+                <Setter Property="Background" Value="{StaticResource CD.Brush.AccentHover}"/>
+            </Trigger>
+        </Style.Triggers>
+    </Style>
+
+    <Style x:Key="CD.Button.Danger" TargetType="Button" BasedOn="{StaticResource CD.Button}">
+        <Setter Property="Background" Value="{StaticResource CD.Brush.Danger}"/>
+        <Setter Property="Foreground" Value="White"/>
+    </Style>
+
+    <Style x:Key="CD.Heading" TargetType="TextBlock">
+        <Setter Property="Foreground" Value="{StaticResource CD.Brush.TextPrimary}"/>
+        <Setter Property="FontFamily" Value="{StaticResource CD.Font.Sans}"/>
+        <Setter Property="FontSize" Value="18"/>
+        <Setter Property="FontWeight" Value="SemiBold"/>
+    </Style>
+
+    <Style x:Key="CD.Subtitle" TargetType="TextBlock">
+        <Setter Property="Foreground" Value="{StaticResource CD.Brush.TextSecondary}"/>
+        <Setter Property="FontFamily" Value="{StaticResource CD.Font.Sans}"/>
+        <Setter Property="FontSize" Value="11"/>
+    </Style>
+
+    <Style x:Key="CD.SectionLabel" TargetType="TextBlock">
+        <Setter Property="Foreground" Value="{StaticResource CD.Brush.TextSecondary}"/>
+        <Setter Property="FontFamily" Value="{StaticResource CD.Font.Sans}"/>
+        <Setter Property="FontSize" Value="12"/>
+        <Setter Property="FontWeight" Value="SemiBold"/>
+        <Setter Property="Margin" Value="0,14,0,6"/>
+    </Style>
+
+    <!-- Accent tab bar used in window and dialog headers. -->
+    <Style x:Key="CD.AccentBar" TargetType="Border">
+        <Setter Property="Background" Value="{StaticResource CD.Brush.Accent}"/>
+        <Setter Property="Width" Value="4"/>
+        <Setter Property="CornerRadius" Value="2"/>
+    </Style>
+
+    <!-- Section, header and footer bar. -->
+    <Style x:Key="CD.Bar" TargetType="Border">
+        <Setter Property="Background" Value="{StaticResource CD.Brush.BgSecondary}"/>
+        <Setter Property="BorderBrush" Value="{StaticResource CD.Brush.Border}"/>
+    </Style>
+
+    <!-- A provider chip in the mappings list: brand colour, rounded, small. -->
+    <Style x:Key="CD.Chip" TargetType="Border">
+        <Setter Property="CornerRadius" Value="3"/>
+        <Setter Property="Padding" Value="6,2"/>
+        <Setter Property="VerticalAlignment" Value="Center"/>
+        <Setter Property="HorizontalAlignment" Value="Left"/>
+    </Style>
+
+    <!--
+        Mapping-list row.
+
+        Retemplated rather than restyled. ModernWpf's stock ListViewItem paints selection with a
+        light accent-tinted fill designed for dark text, but every cell here is a TextBlock using the
+        light TextPrimary brush — so a selected row rendered light-on-light and became unreadable.
+        Retemplating leaves the text brush untouched and uses the subtle RowSelected / RowHover tints
+        the palette already defines for exactly this.
+    -->
+    <Style x:Key="CD.MappingRow" TargetType="ListViewItem">
+        <Setter Property="Foreground" Value="{StaticResource CD.Brush.TextPrimary}"/>
+        <Setter Property="FontFamily" Value="{StaticResource CD.Font.Sans}"/>
+        <Setter Property="FontSize" Value="13"/>
+        <Setter Property="Padding" Value="0,7"/>
+        <Setter Property="SnapsToDevicePixels" Value="True"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ListViewItem">
+                    <Border x:Name="bd" Background="Transparent"
+                            BorderBrush="{StaticResource CD.Brush.Border}"
+                            BorderThickness="0,0,0,1"
+                            Padding="{TemplateBinding Padding}">
+                        <!-- GridViewRowPresenter is what lays the cells out into the GridView's
+                             columns; without it a retemplated row renders as a single blob. -->
+                        <GridViewRowPresenter
+                            Content="{TemplateBinding Content}"
+                            Columns="{Binding View.Columns, RelativeSource={RelativeSource AncestorType={x:Type ListView}}}"
+                            VerticalAlignment="Center"/>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="bd" Property="Background" Value="{StaticResource CD.Brush.RowHover}"/>
+                        </Trigger>
+                        <!-- Selection last, so it wins over hover when both apply. -->
+                        <Trigger Property="IsSelected" Value="True">
+                            <Setter TargetName="bd" Property="Background" Value="{StaticResource CD.Brush.RowSelected}"/>
+                            <Setter TargetName="bd" Property="BorderBrush" Value="{StaticResource CD.Brush.Accent}"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+</ResourceDictionary>

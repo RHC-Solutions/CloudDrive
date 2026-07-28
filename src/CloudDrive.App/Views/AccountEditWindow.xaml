@@ -1,0 +1,153 @@
+<Window x:Class="CloudDrive.App.Views.AccountEditWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ui="http://schemas.modernwpf.com/2019"
+        xmlns:conv="clr-namespace:CloudDrive.App.Views"
+        ui:WindowHelper.UseModernWindowStyle="True"
+        Title="Account" Height="620" Width="560"
+        Icon="/Assets/clouddrive.ico"
+        Background="{StaticResource CD.Brush.BgPrimary}"
+        WindowStartupLocation="CenterOwner" ResizeMode="CanResize">
+
+    <Window.Resources>
+        <conv:BoolToVisibilityConverter x:Key="BoolToVis"/>
+        <conv:StringToVisibilityConverter x:Key="StrToVis"/>
+    </Window.Resources>
+
+    <DockPanel>
+        <!-- Header -->
+        <Border DockPanel.Dock="Top" Style="{StaticResource CD.Bar}" BorderThickness="0,0,0,1" Padding="20,12">
+            <StackPanel Orientation="Horizontal">
+                <Border Style="{StaticResource CD.AccentBar}" Height="24" Margin="0,0,12,0"/>
+                <StackPanel VerticalAlignment="Center">
+                    <TextBlock x:Name="HeaderText" Text="Add account" Style="{StaticResource CD.Heading}"/>
+                    <TextBlock Text="One login. Any number of mappings can use it."
+                               Style="{StaticResource CD.Subtitle}"/>
+                </StackPanel>
+            </StackPanel>
+        </Border>
+
+        <!-- Footer -->
+        <Border DockPanel.Dock="Bottom" Style="{StaticResource CD.Bar}" BorderThickness="0,1,0,0" Padding="20,12">
+            <Grid>
+                <TextBlock x:Name="ErrorText" Foreground="{StaticResource CD.Brush.Danger}"
+                           TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,0,180,0"
+                           Visibility="{Binding Text, RelativeSource={RelativeSource Self},
+                                                Converter={StaticResource StrToVis}}"/>
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                    <Button Content="Cancel" Click="OnCancel" MinWidth="88" Margin="0,0,8,0"/>
+                    <Button x:Name="SaveButton" Content="Save" Click="OnSave"
+                            Style="{StaticResource CD.Button.Accent}" MinWidth="88"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="20,12">
+            <StackPanel>
+                <TextBlock Text="Provider" Style="{StaticResource CD.SectionLabel}" Margin="0,0,0,6"/>
+                <ComboBox x:Name="ProviderBox" SelectionChanged="OnProviderChanged"
+                          DisplayMemberPath="DisplayName" HorizontalAlignment="Stretch"/>
+                <TextBlock x:Name="ProviderDescription" Style="{StaticResource CD.Subtitle}"
+                           TextWrapping="Wrap" Margin="2,6,0,0"/>
+
+                <TextBlock Text="Name" Style="{StaticResource CD.SectionLabel}"/>
+                <TextBox x:Name="NameBox" ui:ControlHelper.PlaceholderText="Work AWS, Client backups…"/>
+
+                <!-- Region, for a provider with a fixed list -->
+                <StackPanel x:Name="RegionPanel">
+                    <TextBlock Text="Region" Style="{StaticResource CD.SectionLabel}"/>
+                    <ComboBox x:Name="RegionBox" DisplayMemberPath="DisplayName" HorizontalAlignment="Stretch"/>
+                </StackPanel>
+
+                <!-- Endpoint / host -->
+                <StackPanel x:Name="HostPanel">
+                    <TextBlock x:Name="HostLabel" Text="Server" Style="{StaticResource CD.SectionLabel}"/>
+                    <TextBox x:Name="HostBox"/>
+                    <TextBlock x:Name="HostHint" Style="{StaticResource CD.Subtitle}"
+                               TextWrapping="Wrap" Margin="2,4,0,0"
+                               Visibility="{Binding Text, RelativeSource={RelativeSource Self},
+                                                    Converter={StaticResource StrToVis}}"/>
+                </StackPanel>
+
+                <!-- Port -->
+                <StackPanel x:Name="PortPanel">
+                    <TextBlock Text="Port" Style="{StaticResource CD.SectionLabel}"/>
+                    <TextBox x:Name="PortBox" Width="120" HorizontalAlignment="Left"/>
+                </StackPanel>
+
+                <!-- Username -->
+                <StackPanel x:Name="UserPanel">
+                    <TextBlock Text="Username" Style="{StaticResource CD.SectionLabel}"/>
+                    <TextBox x:Name="UserBox"/>
+                    <TextBlock x:Name="UserHint" Style="{StaticResource CD.Subtitle}"
+                               TextWrapping="Wrap" Margin="2,4,0,0"
+                               Visibility="{Binding Text, RelativeSource={RelativeSource Self},
+                                                    Converter={StaticResource StrToVis}}"/>
+                </StackPanel>
+
+                <!-- Password -->
+                <StackPanel x:Name="PasswordPanel">
+                    <TextBlock Text="Password" Style="{StaticResource CD.SectionLabel}"/>
+                    <PasswordBox x:Name="PasswordBox"/>
+                    <TextBlock x:Name="PasswordHint" Style="{StaticResource CD.Subtitle}"
+                               TextWrapping="Wrap" Margin="2,4,0,0"
+                               Visibility="{Binding Text, RelativeSource={RelativeSource Self},
+                                                    Converter={StaticResource StrToVis}}"/>
+                </StackPanel>
+
+                <!-- SSH key, for the password-or-key providers -->
+                <StackPanel x:Name="KeyPanel">
+                    <TextBlock Text="SSH private key (optional)" Style="{StaticResource CD.SectionLabel}"/>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBox x:Name="KeyFileBox" Grid.Column="0"/>
+                        <Button Grid.Column="1" Content="Browse…" Click="OnBrowseKey" Margin="8,0,0,0"/>
+                    </Grid>
+                    <TextBlock Style="{StaticResource CD.Subtitle}" TextWrapping="Wrap" Margin="2,4,0,0"
+                               Text="A key is used in preference to the password. SMB, FTP and WebDAV cannot use a key, so a key-only account is limited to SFTP."/>
+                    <TextBlock Text="Key passphrase" Style="{StaticResource CD.SectionLabel}"/>
+                    <PasswordBox x:Name="KeyPassBox"/>
+                </StackPanel>
+
+                <!-- S3 key pair -->
+                <StackPanel x:Name="KeyPairPanel">
+                    <TextBlock x:Name="AccessKeyLabel" Text="Access key" Style="{StaticResource CD.SectionLabel}"/>
+                    <TextBox x:Name="AccessKeyBox"/>
+                    <TextBlock x:Name="SecretKeyLabel" Text="Secret key" Style="{StaticResource CD.SectionLabel}"/>
+                    <PasswordBox x:Name="SecretKeyBox"/>
+                </StackPanel>
+
+                <!-- OAuth -->
+                <StackPanel x:Name="OAuthPanel">
+                    <TextBlock Text="Sign-in" Style="{StaticResource CD.SectionLabel}"/>
+                    <Border Background="#3347C2BE" BorderBrush="{StaticResource CD.Brush.Info}"
+                            BorderThickness="1" CornerRadius="6" Padding="12,10">
+                        <StackPanel>
+                            <TextBlock x:Name="OAuthStatus" TextWrapping="Wrap"
+                                       Foreground="{StaticResource CD.Brush.Info}"/>
+                            <Button x:Name="OAuthButton" Content="Sign in…" Click="OnOAuthSignIn"
+                                    HorizontalAlignment="Left" Margin="0,10,0,0"
+                                    Style="{StaticResource CD.Button.Accent}"/>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+
+                <!-- Protocol, for a provider that speaks more than one -->
+                <StackPanel x:Name="ProtocolPanel">
+                    <TextBlock Text="Protocol" Style="{StaticResource CD.SectionLabel}"/>
+                    <ComboBox x:Name="ProtocolBox" HorizontalAlignment="Stretch"/>
+                    <TextBlock Style="{StaticResource CD.Subtitle}" TextWrapping="Wrap" Margin="2,4,0,0"
+                               Text="Auto measures each reachable protocol against this server and uses whichever is fastest from this machine. The result is cached."/>
+                </StackPanel>
+
+                <!-- TLS -->
+                <CheckBox x:Name="TlsCheck" Content="Use TLS" Margin="0,16,0,0"/>
+
+                <TextBlock Text="" Height="8"/>
+            </StackPanel>
+        </ScrollViewer>
+    </DockPanel>
+</Window>
