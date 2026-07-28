@@ -35,6 +35,20 @@ public partial class App : Application
             return;
         }
 
+        // Loads every window and exits with the number that failed. Run by the installer build, because
+        // XAML faults appear at load time and a compiling build says nothing about them.
+        if (e.Args.Contains("--selftest", StringComparer.OrdinalIgnoreCase))
+        {
+            var index = Array.FindIndex(e.Args, a =>
+                string.Equals(a, "--selftest", StringComparison.OrdinalIgnoreCase));
+            var reportPath = index >= 0 && index + 1 < e.Args.Length && !e.Args[index + 1].StartsWith('-')
+                ? e.Args[index + 1]
+                : null;
+
+            Shutdown(WindowSelfTest.Run(reportPath));
+            return;
+        }
+
         _instanceMutex = new Mutex(initiallyOwned: true, InstanceMutexName, out var isFirst);
         if (!isFirst)
         {

@@ -52,6 +52,35 @@ or from https://jrsoftware.org/isdl.php
 }
 Write-Host "Using $iscc"
 
+function Invoke-WindowSelfTest {
+    <#
+      Opens every window in the published build and refuses to package one that cannot.
+
+      This gate exists because two releases shipped a tray app that died on launch. WPF resolves
+      resource keys and binding cultures when a window loads, not when it compiles, so a clean build
+      and a green unit-test run say nothing about whether the UI can open. Both faults — an
+      InvariantGlobalization setting that broke every binding, and a XAML-raised event touching
+      controls that did not exist yet — were invisible until something actually created a Window.
+    #>
+    param([string] $PublishDir)
+
+    $exe = Join-Path $PublishDir 'CloudDrive.exe'
+    if (-not (Test-Path $exe)) { throw "CloudDrive.exe is missing from $PublishDir." }
+
+    $report = Join-Path $env:TEMP 'clouddrive-selftest.txt'
+    Write-Host 'Running the window self-test...'
+
+    # The report goes to a file because a WinExe writes nothing usable to a redirected console.
+    $proc = Start-Process -FilePath $exe -ArgumentList '--selftest', "`"$report`"" `
+        -Wait -PassThru -WindowStyle Hidden
+
+    if (Test-Path $report) { Get-Content $report | ForEach-Object { Write-Host "  $_" } }
+
+    if ($proc.ExitCode -ne 0) {
+        throw "$($proc.ExitCode) window(s) failed to load. Refusing to build an installer for a UI that cannot start."
+    }
+}
+
 $winfsp = Join-Path $root 'third_party\winfsp\winfsp.msi'
 if (-not (Test-Path $winfsp)) {
     # The installer bundles WinFsp so a fresh machine can mount immediately. Without it the setup
@@ -67,8 +96,12 @@ if (-not $SkipPublish) {
     throw "-SkipPublish was given but $publishDir does not exist."
 }
 
+# --- Verify the UI actually opens ---------------------------------------------------------------
+Invoke-WindowSelfTest -PublishDir $publishDir
+
 # --- Compile ------------------------------------------------------------------------------------
 Write-Host 'Compiling the installer...'
+
 & $iscc `
     "/DAppVersion=$version" `
     "/DSourceDir=$publishDir" `

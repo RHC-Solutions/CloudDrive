@@ -6,7 +6,7 @@
     or the platform-compatibility analyzer.
   -->
   <PropertyGroup>
-    <Version>1.0.1</Version>
+    <Version>1.0.2</Version>
     <Product>CloudDrive</Product>
     <Company>RHC Solutions</Company>
     <Authors>RHC Solutions</Authors>
@@ -17,7 +17,23 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
-    <InvariantGlobalization>true</InvariantGlobalization>
+
+    <!--
+      InvariantGlobalization is deliberately NOT set, and this is not a style preference.
+
+      Setting it true made the tray app crash on startup, every time, on the first window it opened:
+
+        XamlParseException: Initialization of 'System.Windows.Controls.ListView' threw an exception
+        inner: InvalidOperationException: Cannot find non-neutral culture related to 'en-us'
+               at System.Windows.Markup.XmlLanguage.GetSpecificCulture()
+               at System.Windows.Data.BindingExpressionBase.GetCulture()
+
+      WPF resolves a specific culture for every data binding, and in globalization-invariant mode there
+      is no culture data to resolve against, so any Binding inside a Style or DataTrigger throws while
+      the XAML loads. It is fundamentally incompatible with WPF, and the cost of the flag — a smaller
+      self-contained publish, since ICU is dropped — buys nothing worth an application that cannot start.
+    -->
+    <InvariantGlobalization>false</InvariantGlobalization>
 
     <!--
       CA1416 (platform compatibility) is the analyzer that catches calling a Windows-10-1709 API on

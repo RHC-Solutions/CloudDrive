@@ -90,27 +90,48 @@ public sealed class AppController : IAsyncDisposable
             _client = client;
 
             await RefreshAsync(ct).ConfigureAwait(false);
-            ConnectionChanged?.Invoke(true);
+            OnUi(() => ConnectionChanged?.Invoke(true));
             return null;
         }
         catch (ServiceUnavailableException ex)
         {
             _log.Warn(ex.Message);
-            ConnectionChanged?.Invoke(false);
+            OnUi(() => ConnectionChanged?.Invoke(false));
             return ex.Message;
         }
         catch (Exception ex)
         {
             _log.Error("Connecting to the service failed", ex);
-            ConnectionChanged?.Invoke(false);
+            OnUi(() => ConnectionChanged?.Invoke(false));
             return ex.Message;
         }
+    }
+
+    /// <summary>
+    /// Runs <paramref name="action"/> on the UI thread.
+    ///
+    /// <para>Necessary because this class deliberately uses <c>ConfigureAwait(false)</c> throughout — it
+    /// is mostly I/O against a named pipe — which means every continuation lands on a thread-pool
+    /// thread. Anything that touches <see cref="Mappings"/> or raises <see cref="StateRefreshed"/> is
+    /// then touching WPF state from the wrong thread, and the tray app died with "The calling thread
+    /// cannot access this object because a different thread owns it" seconds after launch.</para>
+    ///
+    /// <para>Marshalling here rather than dropping the ConfigureAwait calls keeps the choice explicit:
+    /// the IPC work stays off the UI thread and only the state hand-off comes back onto it. The
+    /// CheckAccess test makes it a no-op when already on the UI thread, and the null dispatcher case
+    /// covers the headless self-test, which has no Application at all.</para>
+    /// </summary>
+    private static void OnUi(Action action)
+    {
+        var dispatcher = Application.Current?.Dispatcher;
+        if (dispatcher is null || dispatcher.CheckAccess()) action();
+        else dispatcher.Invoke(action);
     }
 
     private void OnDisconnected(Exception? ex)
     {
         _log.Warn("The connection to the CloudDrive service was lost; reconnecting.");
-        ConnectionChanged?.Invoke(false);
+        OnUi(() => ConnectionChanged?.Invoke(false));
         _ = ReconnectLoopAsync();
     }
 
@@ -152,16 +173,21 @@ public sealed class AppController : IAsyncDisposable
                 "You are signed in as a standard user, so CloudDrive is read-only here. "
                 + "Configuration changes need administrator rights.");
         }
-        Warnings = warnings;
+        // Everything below touches WPF-bound state, so it goes back to the UI thread. SyncMappingList
+        // mutates an ObservableCollection a ListView is bound to, which is illegal off-thread.
+        OnUi(() =>
+        {
+            Warnings = warnings;
 
-        // Reconcile the sign-in registration here rather than only when Settings is saved. The setting
-        // lives in the machine store, so it can be changed by another user, by the CLI, or by editing
-        // the JSON — and it is per-user registry state, so only this process, running as this user, can
-        // act on it. Also repairs a stale entry after an upgrade moved the executable.
-        ApplyStartupRegistration(_snapshot.Settings.StartAtLogin);
+            // Reconcile the sign-in registration here rather than only when Settings is saved. The
+            // setting lives in the machine store, so it can be changed by another user, by the CLI, or
+            // by editing the JSON — and it is per-user registry state, so only this process, running as
+            // this user, can act on it. Also repairs a stale entry after an upgrade moved the exe.
+            ApplyStartupRegistration(_snapshot.Settings.StartAtLogin);
 
-        SyncMappingList(_snapshot);
-        StateRefreshed?.Invoke();
+            SyncMappingList(_snapshot);
+            StateRefreshed?.Invoke();
+        });
     }
 
     /// <summary>

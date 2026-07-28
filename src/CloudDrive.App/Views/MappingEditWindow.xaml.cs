@@ -15,6 +15,21 @@ public partial class MappingEditWindow : Window
     private readonly Mapping _mapping;
     private readonly bool _isNew;
 
+    /// <summary>
+    /// False until the constructor has finished, which is what stops a XAML-raised event running the
+    /// Apply methods too early.
+    ///
+    /// The window declares <c>IsChecked="True"</c> on the drive-letter radio button. WPF applies that
+    /// while <see cref="InitializeComponent"/> is still walking the tree, so Checked fires immediately —
+    /// and ApplyTarget then touches LetterPanel, DirectoryPanel, DirectoryBox and two check boxes, every
+    /// one of which is declared further down the XAML and therefore still null. The result was a
+    /// NullReferenceException from the constructor: the Add-mapping window could never open.
+    ///
+    /// The Apply methods are called explicitly at the end of LoadFields, once every field exists, so
+    /// suppressing the premature callbacks loses nothing.
+    /// </summary>
+    private bool _ready;
+
     public MappingEditWindow(AppController controller, Mapping? existing)
     {
         _controller = controller;
@@ -29,6 +44,7 @@ public partial class MappingEditWindow : Window
         HeaderText.Text = _isNew ? "Add mapping" : $"Edit '{_mapping.Name}'";
         BuildChoices();
         LoadFields();
+        _ready = true;
     }
 
     public Mapping? Result { get; private set; }
@@ -103,7 +119,10 @@ public partial class MappingEditWindow : Window
         ApplyHost();
     }
 
-    private void OnAccountChanged(object sender, SelectionChangedEventArgs e) => ApplyAccount();
+    private void OnAccountChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_ready) ApplyAccount();
+    }
 
     private void ApplyAccount()
     {
@@ -120,7 +139,10 @@ public partial class MappingEditWindow : Window
         if (NameBox.Text.Length == 0 && _isNew) NameBox.Text = SelectedAccount.Name;
     }
 
-    private void OnModeChanged(object sender, SelectionChangedEventArgs e) => ApplyMode();
+    private void OnModeChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_ready) ApplyMode();
+    }
 
     private void ApplyMode()
     {
@@ -137,7 +159,10 @@ public partial class MappingEditWindow : Window
               + "anyone signs in.";
     }
 
-    private void OnTargetChanged(object sender, RoutedEventArgs e) => ApplyTarget();
+    private void OnTargetChanged(object sender, RoutedEventArgs e)
+    {
+        if (_ready) ApplyTarget();
+    }
 
     private void ApplyTarget()
     {
@@ -155,7 +180,10 @@ public partial class MappingEditWindow : Window
             DirectoryBox.Text = _mapping.DefaultMountDirectory;
     }
 
-    private void OnHostChanged(object sender, SelectionChangedEventArgs e) => ApplyHost();
+    private void OnHostChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_ready) ApplyHost();
+    }
 
     private void ApplyHost()
     {
