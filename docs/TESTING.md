@@ -75,10 +75,15 @@ None of the unelevated gaps are failures. CloudDrive resolves its tools by absol
 
 ## Things that legitimately look like errors
 
-**`GitHub returned 404 for 'RHC-Solutions/CloudDrive'`** — the repository is private, and the releases
-API needs authentication for a private repository while CloudDrive polls it anonymously. Automatic
-updating cannot work until releases are published publicly. Reported once per service start rather
-than every poll.
+**`Up to date: version 1.0.0`** when you expected an update — correct, and not an error. The repository
+is public and the releases API answers anonymously, but no releases have been published yet, so there
+is nothing newer to find. Auto-update starts working with the first release that carries a
+`CloudDrive-Setup*.exe` asset; until then the updater polls, finds an empty list, and says so.
+
+**`GitHub returned 404 for '…'`** — the repository is not visible anonymously, which for a private
+repository is permanent: the releases API needs authentication and CloudDrive polls it without any.
+Reported once per service start rather than on every poll. This was the state before the repository was
+made public.
 
 **`Not adding …\tools\bin to the system PATH`** — expected unelevated; see the table above.
 
