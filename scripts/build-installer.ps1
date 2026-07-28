@@ -116,6 +116,13 @@ if (-not (Test-Path $setup)) { throw 'ISCC reported success but produced no inst
 $versioned = Join-Path $installerDir "output\CloudDrive-Setup-$version.exe"
 Copy-Item $setup $versioned -Force
 
+# The self-updating installer verifies its download against this sidecar before executing it, so the
+# release must carry one. Without it a CloudDrive-Setup.exe from an earlier version has nothing to check
+# against and correctly falls back to installing its own bundled payload.
+$sha = (Get-FileHash -Path $setup -Algorithm SHA256).Hash.ToLowerInvariant()
+Set-Content -Path "$setup.sha256" -Value "$sha  CloudDrive-Setup.exe" -NoNewline
+Write-Host "Wrote CloudDrive-Setup.exe.sha256"
+
 # Keep the README's download link, size and checksum in step with what was just built. A stale
 # checksum is worse than none: it tells a careful reader their download is corrupt when it is fine.
 & (Join-Path $PSScriptRoot 'update-readme-download.ps1') -Root $root

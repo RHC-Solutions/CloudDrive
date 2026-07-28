@@ -3,14 +3,20 @@ using System.Runtime.Versioning;
 using System.Windows;
 using CloudDrive.App.Services;
 using CloudDrive.Core.Tooling;
+using CloudDrive.Ipc;
 
 namespace CloudDrive.App.Views;
 
 [SupportedOSPlatform("windows")]
 public partial class AboutWindow : Window
 {
+    private readonly AppController _controller;
+    private UpdateCheckResult? _pending;
+
     public AboutWindow(AppController controller)
     {
+        _controller = controller;
+
         InitializeComponent();
 
         VersionText.Text = $"Version {UpdateService.CurrentVersion}";
@@ -35,6 +41,130 @@ public partial class AboutWindow : Window
         OnDemandText.Text = capabilities.SupportsFilesOnDemand
             ? "Files On-Demand: available"
             : $"Files On-Demand: unavailable. {capabilities.FilesOnDemandUnavailableReason}";
+
+        UpdateStatusText.Text = controller.IsConnected
+            ? "Choose Check now to look for a newer release."
+            : "The service is not running, so updates cannot be checked.";
+        CheckUpdateButton.IsEnabled = controller.IsConnected;
+        ShowUpdatePolicy();
+    }
+
+    // ---------------------------------------------------------------- Updates -----------------
+
+    /// <summary>
+    /// Describes the update policy the service is running under.
+    ///
+    /// Worth stating rather than leaving implicit: a user who sees "Check now" reasonably assumes that
+    /// is the only way updates happen, when in fact the service polls on its own and installs while the
+    /// machine is quiet.
+    /// </summary>
+    private void ShowUpdatePolicy()
+    {
+        var updates = _controller.Settings.Updates;
+
+        if (!updates.CheckForUpdates)
+        {
+            UpdatePolicyText.Text =
+                "Automatic checking is off. Turn it on in Settings, or use Check now.";
+            return;
+        }
+
+        var cadence = $"Checked automatically every {updates.CheckIntervalHours} hour"
+                      + (updates.CheckIntervalHours == 1 ? string.Empty : "s") + ".";
+
+        UpdatePolicyText.Text = updates.AutoInstallWhenIdle
+            ? cadence + $" A new version installs on its own once the machine has been idle for "
+                      + $"{updates.IdleMinutesBeforeInstall} minutes, so nothing is interrupted mid-transfer."
+            : cadence + " Installing is left to you.";
+    }
+
+    private async void OnCheckForUpdate(object sender, RoutedEventArgs e)
+    {
+        CheckUpdateButton.IsEnabled = false;
+        InstallUpdateButton.Visibility = Visibility.Collapsed;
+        ReleaseNotesButton.Visibility = Visibility.Collapsed;
+        UpdateStatusText.Text = "Checking…";
+
+        try
+        {
+            _pending = await _controller.CheckForUpdateAsync();
+            ShowUpdateResult(_pending);
+        }
+        catch (Exception ex)
+        {
+            // A failed check is routine — no network, a rate limit, a private repository — and must not
+            // look like a broken application.
+            UpdateStatusText.Text = $"Could not check for updates: {ex.Message}";
+        }
+        finally
+        {
+            CheckUpdateButton.IsEnabled = true;
+        }
+    }
+
+    private void ShowUpdateResult(UpdateCheckResult? result)
+    {
+        if (result is null)
+        {
+            UpdateStatusText.Text = "The service did not answer. It may be stopped.";
+            return;
+        }
+
+        if (!result.UpdateAvailable)
+        {
+            UpdateStatusText.Text = $"Up to date — version {result.CurrentVersion} is the newest release.";
+            return;
+        }
+
+        var size = result.SizeBytes > 0
+            ? $" ({result.SizeBytes / 1024 / 1024} MB)"
+            : string.Empty;
+
+        UpdateStatusText.Text = result.DeferredReason is { } reason
+            ? $"Version {result.AvailableVersion} is downloaded and waiting{size}. {reason}"
+            : $"Version {result.AvailableVersion} is available{size}.";
+
+        // Only offer the button to someone who can act on it; installing replaces machine-wide files.
+        InstallUpdateButton.Visibility = _controller.IsAdministrator ? Visibility.Visible : Visibility.Collapsed;
+        ReleaseNotesButton.Visibility = string.IsNullOrWhiteSpace(result.ReleaseUrl)
+            ? Visibility.Collapsed
+            : Visibility.Visible;
+
+        if (!_controller.IsAdministrator)
+        {
+            UpdateStatusText.Text += " Installing it needs administrator rights.";
+        }
+    }
+
+    private async void OnInstallUpdate(object sender, RoutedEventArgs e)
+    {
+        if (MessageBox.Show(
+                $"Install version {_pending?.AvailableVersion} now?\n\n"
+                + "Every mounted drive is unmounted while CloudDrive is replaced, then remounted.",
+                "CloudDrive", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes)
+        {
+            return;
+        }
+
+        InstallUpdateButton.IsEnabled = false;
+        UpdateStatusText.Text = "Installing… CloudDrive will restart.";
+
+        try
+        {
+            await _controller.InstallUpdateAsync();
+        }
+        catch (Exception ex)
+        {
+            UpdateStatusText.Text = $"The update could not be installed: {ex.Message}";
+            InstallUpdateButton.IsEnabled = true;
+        }
+    }
+
+    private void OnReleaseNotes(object sender, RoutedEventArgs e)
+    {
+        var url = _pending?.ReleaseUrl;
+        if (string.IsNullOrWhiteSpace(url)) return;
+        Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
     }
 
     private void OnGitHub(object sender, RoutedEventArgs e) =>

@@ -37,6 +37,9 @@ public partial class MappingEditWindow : Window
         _mapping = existing?.Clone() ?? new Mapping
         {
             Cache = controller.Settings.DefaultCache.Clone(),
+            // Serviced is the better default -- it survives sign-out -- but only an administrator may
+            // create one, so a standard user starts on the option they can actually save.
+            Host = controller.IsAdministrator ? MountHost.Service : MountHost.UserSession,
         };
 
         InitializeComponent();
@@ -65,11 +68,19 @@ public partial class MappingEditWindow : Window
             modes.Insert(0, new ModeChoice(MappingMode.OnDemandFolder, "Files On-Demand folder"));
         ModeBox.ItemsSource = modes;
 
-        HostBox.ItemsSource = new[]
-        {
-            new HostChoice(MountHost.Service, "The CloudDrive service"),
-            new HostChoice(MountHost.UserSession, "This sign-in session"),
-        };
+        // A serviced mapping is only offered to an administrator. The service runs as LocalSystem, so
+        // creating one means directing a SYSTEM process at a path of your choosing — the service refuses
+        // it for a standard user, and offering a choice that will be rejected on save is worse than not
+        // offering it. A session-hosted mapping needs no privilege at all, which is how both
+        // predecessors worked.
+        var hosts = new List<HostChoice>();
+        if (_controller.IsAdministrator)
+            hosts.Add(new HostChoice(MountHost.Service, "The CloudDrive service"));
+        hosts.Add(new HostChoice(MountHost.UserSession, "This sign-in session"));
+        HostBox.ItemsSource = hosts;
+
+        // Only one option left, so the picker is noise rather than a choice.
+        HostBox.IsEnabled = hosts.Count > 1;
 
         // Letters already taken by a real volume are excluded; C and below never offered.
         var used = DriveInfo.GetDrives()
@@ -98,7 +109,9 @@ public partial class MappingEditWindow : Window
             ?? ModeBox.Items.OfType<ModeChoice>().First();
 
         HostBox.SelectedItem = HostBox.Items.OfType<HostChoice>()
-            .First(h => h.Host == _mapping.Host);
+            .FirstOrDefault(h => h.Host == _mapping.Host)
+            // A standard user has no Service entry to select, and First would have thrown.
+            ?? HostBox.Items.OfType<HostChoice>().First();
 
         LetterRadio.IsChecked = _mapping.MountTarget == MountTarget.DriveLetter;
         DirectoryRadio.IsChecked = _mapping.MountTarget == MountTarget.Directory;
@@ -188,6 +201,16 @@ public partial class MappingEditWindow : Window
     private void ApplyHost()
     {
         var host = (HostBox.SelectedItem as HostChoice)?.Host ?? MountHost.Service;
+
+        if (!_controller.IsAdministrator)
+        {
+            HostHint.Text =
+                "Mounted by CloudDrive in your session, and gone when you sign out. Hosting a mapping in "
+                + "the machine-wide service needs administrator rights, because the service mounts as "
+                + "LocalSystem for every user.";
+            return;
+        }
+
         HostHint.Text = host == MountHost.Service
             ? "Mounted at boot by the LocalSystem service, visible from every session, and there "
               + "before anyone signs in. Also visible to every other user on this machine."

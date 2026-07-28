@@ -53,7 +53,7 @@ public sealed class IpcDispatcher(
             IpcOperation.DeleteMapping => await DeleteMappingAsync(request, ct).ConfigureAwait(false),
             IpcOperation.SaveSettings => await SaveSettingsAsync(request).ConfigureAwait(false),
 
-            IpcOperation.GetCredentialsForOnDemand => GetOnDemandCredentials(request),
+            IpcOperation.GetSessionCredentials => GetOnDemandCredentials(request),
 
             IpcOperation.SaveNotificationTarget => await SaveNotificationTargetAsync(request).ConfigureAwait(false),
             IpcOperation.DeleteNotificationTarget => await DeleteNotificationTargetAsync(request).ConfigureAwait(false),
@@ -153,23 +153,86 @@ public sealed class IpcDispatcher(
         return result;
     }
 
+    // ---------------------------------------------------------------- Authorisation -----------
+
+    // Every write used to call RequireAdministrator, which was too blunt and made CloudDrive unusable
+    // for a standard user — a regression against both predecessors, which needed no privilege at all
+    // because they only ever mounted into the caller's own session.
+    //
+    // The thing actually worth protecting is narrower: the Windows service runs as LocalSystem, so
+    // anyone who can edit a *serviced* mapping can point a SYSTEM process at a path of their choosing.
+    // Machine-wide settings, notification targets and tool installs are the same class of problem.
+    //
+    // Nothing about a mapping that mounts in your own session, from an account you created, escalates
+    // anything. Those are authorised by ownership instead.
+
+    /// <summary>
+    /// Throws unless the caller may modify <paramref name="account"/>: administrators may change any,
+    /// and a standard user may change one they own. An account with no owner is shared, so other users'
+    /// mappings may depend on it and changing it needs elevation.
+    /// </summary>
+    private static void RequireAccountAccess(IpcRequest request, Account? account)
+    {
+        if (request.Caller.IsAdministrator) return;
+        if (account is null) return; // a new account; ownership is stamped on save
+
+        if (account.IsMachineWide)
+        {
+            throw new UnauthorizedAccessException(
+                $"'{account.Name}' is a shared account, so changing it needs administrator rights. "
+                + "Accounts you create yourself do not.");
+        }
+
+        if (!string.Equals(account.OwnerSid, request.Caller.Sid, StringComparison.OrdinalIgnoreCase))
+            throw new UnauthorizedAccessException($"'{account.Name}' belongs to another user.");
+    }
+
+    /// <summary>
+    /// Throws unless the caller may modify <paramref name="mapping"/>. A mapping hosted by the service
+    /// always needs elevation, because the service acts as LocalSystem. One hosted in a user's own
+    /// session needs only that the caller owns it.
+    /// </summary>
+    private static void RequireMappingAccess(IpcRequest request, Mapping mapping)
+    {
+        if (request.Caller.IsAdministrator) return;
+
+        if (mapping.Host == MountHost.Service)
+        {
+            throw new UnauthorizedAccessException(
+                "A mapping hosted by the CloudDrive service needs administrator rights, because the "
+                + "service runs as LocalSystem and mounts for the whole machine. Choose "
+                + "'This sign-in session' to manage it without elevation.");
+        }
+
+        if (!string.IsNullOrEmpty(mapping.OwnerSid)
+            && !string.Equals(mapping.OwnerSid, request.Caller.Sid, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new UnauthorizedAccessException($"'{mapping.Name}' belongs to another user.");
+        }
+    }
+
     // ---------------------------------------------------------------- Mount control -----------
 
     private async Task<object?> MountAsync(IpcRequest request, CancellationToken ct)
     {
-        request.RequireAdministrator();
         var body = request.Body<MountRequest>() ?? throw new InvalidOperationException("No mapping specified.");
+        RequireMappingAccess(request, RequireMapping(body.MappingId));
         await reconciler.MountAsync(body.MappingId, ct).ConfigureAwait(false);
         return null;
     }
 
     private async Task<object?> UnmountAsync(IpcRequest request, CancellationToken ct)
     {
-        request.RequireAdministrator();
         var body = request.Body<MountRequest>() ?? throw new InvalidOperationException("No mapping specified.");
+        RequireMappingAccess(request, RequireMapping(body.MappingId));
         await reconciler.UnmountAsync(body.MappingId, ct).ConfigureAwait(false);
         return null;
     }
+
+    /// <summary>The mapping, or a clear error naming what was asked for.</summary>
+    private Mapping RequireMapping(Guid id) =>
+        config.Load().FindMapping(id)
+        ?? throw new InvalidOperationException($"No mapping with id {id:D} exists.");
 
     private async Task<object?> RemountAllAsync(IpcRequest request, CancellationToken ct)
     {
@@ -183,13 +246,18 @@ public sealed class IpcDispatcher(
 
     private async Task<object?> SaveAccountAsync(IpcRequest request)
     {
-        request.RequireAdministrator();
         var body = request.Body<SaveAccountRequest>()
                    ?? throw new InvalidOperationException("No account supplied.");
 
         var account = body.Account;
         if (string.IsNullOrWhiteSpace(account.Name))
             throw new InvalidOperationException("The account needs a name.");
+
+        RequireAccountAccess(request, config.Load().FindAccount(account.Id));
+
+        // A standard user's account is stamped as theirs; an administrator's is shared. Taken from the
+        // caller's token rather than from the request, so it cannot be claimed on someone else's behalf.
+        if (!request.Caller.IsAdministrator) account.OwnerSid = request.Caller.Sid;
 
         config.Mutate(document =>
         {
@@ -209,8 +277,8 @@ public sealed class IpcDispatcher(
 
     private async Task<object?> DeleteAccountAsync(IpcRequest request, CancellationToken ct)
     {
-        request.RequireAdministrator();
         var body = request.Body<DeleteRequest>() ?? throw new InvalidOperationException("No account specified.");
+        RequireAccountAccess(request, config.Load().FindAccount(body.Id));
 
         var removed = config.Mutate(document => document.RemoveAccountCascade(body.Id));
 
@@ -231,10 +299,17 @@ public sealed class IpcDispatcher(
 
     private async Task<object?> SaveMappingAsync(IpcRequest request)
     {
-        request.RequireAdministrator();
         var body = request.Body<SaveMappingRequest>()
                    ?? throw new InvalidOperationException("No mapping supplied.");
         var mapping = body.Mapping;
+
+        // Both the incoming mapping and whatever it replaces are checked. The first stops a standard
+        // user creating a serviced mapping; the second stops them converting someone else's.
+        RequireMappingAccess(request, mapping);
+        if (config.Load().FindMapping(mapping.Id) is { } previous)
+            RequireMappingAccess(request, previous);
+
+        if (!request.Caller.IsAdministrator) mapping.OwnerSid = request.Caller.Sid;
 
         var document = config.Load();
         var account = document.FindAccount(mapping.AccountId)
@@ -268,8 +343,8 @@ public sealed class IpcDispatcher(
 
     private async Task<object?> DeleteMappingAsync(IpcRequest request, CancellationToken ct)
     {
-        request.RequireAdministrator();
         var body = request.Body<DeleteRequest>() ?? throw new InvalidOperationException("No mapping specified.");
+        RequireMappingAccess(request, RequireMapping(body.Id));
 
         await reconciler.UnmountAsync(body.Id, ct).ConfigureAwait(false);
         config.Mutate(document => document.Mappings.RemoveAll(m => m.Id == body.Id));
@@ -307,9 +382,14 @@ public sealed class IpcDispatcher(
         var mapping = document.FindMapping(body.MappingId)
             ?? throw new InvalidOperationException("That mapping no longer exists.");
 
-        if (mapping.Mode != MappingMode.OnDemandFolder || mapping.Host != MountHost.UserSession)
+        // Any mapping hosted in a user's own session, whichever mode. A session-hosted drive letter is
+        // mounted by the tray app rather than by the service, and it needs the same credentials an
+        // on-demand root does. A serviced mapping is never released: the service already holds those and
+        // handing them to a client would leak a machine-wide secret to whoever asked.
+        if (mapping.Host != MountHost.UserSession)
             throw new UnauthorizedAccessException(
-                "Credentials are only released for Files On-Demand mappings that run in a user session.");
+                "Credentials are only released for mappings that run in a user session. This one is "
+                + "hosted by the service, which uses them itself.");
 
         var isOwner = string.Equals(mapping.OwnerSid, request.Caller.Sid, StringComparison.Ordinal);
         if (!isOwner && !request.Caller.IsAdministrator)

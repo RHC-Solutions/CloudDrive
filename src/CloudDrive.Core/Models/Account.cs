@@ -85,6 +85,24 @@ public sealed class Account
     /// </summary>
     public string? ReauthRequiredReason { get; set; }
 
+    /// <summary>
+    /// SID of the user this account belongs to, or null when it is machine-wide.
+    ///
+    /// <para>This is what lets a standard user use CloudDrive at all. The configuration is machine-wide
+    /// and the service that acts on it runs as LocalSystem, so allowing anyone to edit any of it would
+    /// let a standard user direct a SYSTEM process at a path of their choosing. Blanket-requiring
+    /// administrator rights closed that hole but took the ordinary case with it: editing an account you
+    /// created, for a folder that only ever mounts in your own session, escalates nothing.</para>
+    ///
+    /// <para>So ownership is recorded instead. An account created by a standard user is theirs, and they
+    /// may edit and delete it without elevation. An account created by an administrator is shared and
+    /// needs elevation to change, because other users' mappings may depend on it.</para>
+    /// </summary>
+    public string? OwnerSid { get; set; }
+
+    /// <summary>True when this account is shared rather than belonging to one user.</summary>
+    public bool IsMachineWide => string.IsNullOrEmpty(OwnerSid);
+
     /// <summary>Provider-specific odds and ends that do not deserve a typed field.</summary>
     public Dictionary<string, string> Options { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 

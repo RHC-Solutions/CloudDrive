@@ -35,7 +35,7 @@ public enum IpcOperation
     /// Releases an account's credentials to the caller so the tray app can run a Files On-Demand
     /// root in the user's session. Guarded hard: see <see cref="IpcRequest"/>.
     /// </summary>
-    GetCredentialsForOnDemand,
+    GetSessionCredentials,
 
     // --- Notifications ---
     SaveNotificationTarget,

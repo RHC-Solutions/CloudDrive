@@ -8,6 +8,7 @@ using CloudDrive.App.ViewModels;
 using CloudDrive.CloudFiles;
 using CloudDrive.Core;
 using CloudDrive.Core.Models;
+using CloudDrive.Core.Mounting;
 using CloudDrive.Core.Platform;
 using CloudDrive.Core.Stores;
 using CloudDrive.Ipc;
@@ -29,6 +30,20 @@ public sealed class AppController : IAsyncDisposable
     private readonly FileLogger _log;
     private readonly Dictionary<Guid, OnDemandSyncManager> _onDemand = [];
     private readonly Lock _onDemandGate = new();
+
+    /// <summary>
+    /// Mounts drive letters that belong to this session rather than to the service.
+    ///
+    /// <para>Created on first use, because it needs rclone's path from the service's capability report
+    /// and because a user with no session-hosted mappings should never pay for it.</para>
+    ///
+    /// <para>This exists because "hosted by: this sign-in session" was selectable and nothing honoured
+    /// it: the reconciler skips any mapping that is not serviced, and this class only handled on-demand
+    /// folders, so a session-hosted drive letter silently never mounted. It also matters more now than
+    /// it looks — a standard user cannot create a serviced mapping, so without this they would be
+    /// limited to Files On-Demand.</para>
+    /// </summary>
+    private MountManager? _sessionMounts;
 
     private IpcClient? _client;
     private ServiceSnapshot? _snapshot;
@@ -310,6 +325,12 @@ public sealed class AppController : IAsyncDisposable
             return;
         }
 
+        if (row.Mapping.Host == MountHost.UserSession)
+        {
+            await MountInSessionAsync(row, ct).ConfigureAwait(false);
+            return;
+        }
+
         RequireClient();
         row.State = MountState.Mounting;
         await _client!.CallAsync(IpcOperation.Mount, new MountRequest { MappingId = row.Id }, ct)
@@ -325,10 +346,77 @@ public sealed class AppController : IAsyncDisposable
             return;
         }
 
+        if (row.Mapping.Host == MountHost.UserSession)
+        {
+            row.State = MountState.Unmounting;
+            if (_sessionMounts is not null)
+                await _sessionMounts.UnmountAsync(row.Id, ct).ConfigureAwait(false);
+            row.State = MountState.Unmounted;
+            return;
+        }
+
         RequireClient();
         row.State = MountState.Unmounting;
         await _client!.CallAsync(IpcOperation.Unmount, new MountRequest { MappingId = row.Id }, ct)
             .ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Mounts a drive letter or directory in this session, using rclone directly rather than asking the
+    /// service to do it.
+    ///
+    /// The credentials come from the service over the pipe, which releases them only for a mapping this
+    /// user owns, and they are never written to disk here.
+    /// </summary>
+    private async Task MountInSessionAsync(MappingViewModel row, CancellationToken ct)
+    {
+        RequireClient();
+
+        if (Capabilities.RclonePath is not { Length: > 0 } rclone)
+        {
+            throw new InvalidOperationException(
+                "rclone was not found, so a drive cannot be mounted. Install it from Settings → Tools.");
+        }
+
+        var released = await _client!
+            .CallAsync<OnDemandCredentialsResult>(
+                IpcOperation.GetSessionCredentials, new MountRequest { MappingId = row.Id }, ct)
+            .ConfigureAwait(false)
+            ?? throw new InvalidOperationException("The service released no credentials for this mapping.");
+
+        _sessionMounts ??= CreateSessionMounts(rclone);
+
+        row.State = MountState.Mounting;
+        await _sessionMounts.MountAsync(row.Mapping, released.Account, released.Credentials, ct)
+            .ConfigureAwait(false);
+    }
+
+    private MountManager CreateSessionMounts(string rclonePath)
+    {
+        var manager = new MountManager(rclonePath)
+        {
+            VerboseLogging = Settings.VerboseLogging,
+            DriveIconPath = DriveIconPath(),
+        };
+
+        manager.StatusChanged += (_, e) => OnUi(() =>
+        {
+            var row = Mappings.FirstOrDefault(m => m.Id == e.MappingId);
+            if (row is null) return;
+            row.State = e.State;
+            row.StatusMessage = e.Message;
+            if (e.Message is not null) AppendLog($"[{row.Name}] {e.Message}");
+        });
+        manager.LogReceived += (_, e) => OnUi(() => AppendLog(e.Line));
+
+        return manager;
+    }
+
+    /// <summary>The app's own icon, so a session-mounted drive is branded like a serviced one.</summary>
+    private static string? DriveIconPath()
+    {
+        var candidate = Path.Combine(AppContext.BaseDirectory, "clouddrive.ico");
+        return File.Exists(candidate) ? candidate : null;
     }
 
     /// <summary>
@@ -354,7 +442,7 @@ public sealed class AppController : IAsyncDisposable
 
         var released = await _client!
             .CallAsync<OnDemandCredentialsResult>(
-                IpcOperation.GetCredentialsForOnDemand, new MountRequest { MappingId = row.Id }, ct)
+                IpcOperation.GetSessionCredentials, new MountRequest { MappingId = row.Id }, ct)
             .ConfigureAwait(false)
             ?? throw new InvalidOperationException("The service did not return credentials for this mapping.");
 
@@ -392,6 +480,17 @@ public sealed class AppController : IAsyncDisposable
     /// <summary>Starts every on-demand mapping this user owns and has marked auto-mount.</summary>
     public async Task AutoMountAsync(CancellationToken ct = default)
     {
+        // Session-hosted drive letters are auto-mounted here too. The service auto-mounts only what it
+        // hosts, so without this a session mapping marked "mount automatically" would not.
+        foreach (var row in Mappings.Where(m =>
+                     m.Mapping.Mode == MappingMode.DriveLetter
+                     && m.Mapping.Host == MountHost.UserSession
+                     && m.Mapping.AutoMount).ToList())
+        {
+            try { await MountInSessionAsync(row, ct).ConfigureAwait(false); }
+            catch (Exception ex) { _log.Warn($"Auto-mounting '{row.Name}' failed: {ex.Message}"); }
+        }
+
         foreach (var row in Mappings.Where(m =>
                      m.Mapping.Mode == MappingMode.OnDemandFolder && m.Mapping.AutoMount).ToList())
         {
@@ -446,6 +545,18 @@ public sealed class AppController : IAsyncDisposable
         RequireClient();
         return await _client!.CallAsync<UpdateCheckResult>(IpcOperation.CheckForUpdate, null, ct)
             .ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Asks the service to apply the pending update.
+    ///
+    /// The service unmounts everything, runs the installer silently and restarts, so this connection
+    /// drops as a matter of course — the reconnect loop picks it up again afterwards.
+    /// </summary>
+    public async Task InstallUpdateAsync(CancellationToken ct = default)
+    {
+        RequireClient();
+        await _client!.CallAsync(IpcOperation.InstallUpdate, null, ct).ConfigureAwait(false);
     }
 
     public async Task<ToolStateResult?> GetToolStateAsync(CancellationToken ct = default)
