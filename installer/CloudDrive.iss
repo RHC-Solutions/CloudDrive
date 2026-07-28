@@ -74,8 +74,9 @@ Name: "{autodesktop}\{#AppName}";     Filename: "{app}\{#AppExe}"; Tasks: deskto
 Filename: "msiexec.exe"; Parameters: "/i ""{tmp}\winfsp.msi"" /qn /norestart"; \
   StatusMsg: "Installing WinFsp..."; Flags: waituntilterminated; Check: NeedsWinFsp
 
-Filename: "{app}\cdrive.exe"; Parameters: "service install"; \
-  StatusMsg: "Registering the CloudDrive service..."; Flags: runhidden waituntilterminated; Tasks: service
+; The service is registered from [Code] instead of here. An entry in this section runs without its
+; exit code ever being examined, so a failure to register the service -- the whole point of the
+; product -- produced a setup that reported complete success and left no service behind.
 
 ; Launching the tray app is skipped in silent mode, which is how the in-app updater runs this — a
 ; window appearing on an unattended server would be wrong.
@@ -115,6 +116,29 @@ begin
   Result := not IsWinFspInstalled;
 end;
 
+{ True when the service is registered. Checked directly rather than inferred from an exit code. }
+function ServiceExists: Boolean;
+begin
+  Result := RegKeyExists(HKLM, 'SYSTEM\CurrentControlSet\Services\{#ServiceName}');
+end;
+
+{ Says so, rather than letting the user find out when nothing mounts.
+
+  Silent during an unattended install, which is how the in-app updater runs setup: a modal dialog
+  on a server nobody is watching would hang the update indefinitely. The reason still reaches the
+  setup log in that case. }
+procedure ReportServiceFailure(Message: String);
+begin
+  if WizardSilent then
+    Log('CloudDrive: ' + Message)
+  else
+    MsgBox(Message + #13#10#13#10 +
+           'CloudDrive is installed, but drive mappings cannot mount until the service is running.' + #13#10 +
+           'Register it by hand from an elevated prompt:' + #13#10#13#10 +
+           '    "' + ExpandConstant('{app}') + '\cdrive.exe" service install',
+           mbError, MB_OK);
+end;
+
 function InitializeSetup: Boolean;
 begin
   { The in-app updater passes /RESTARTSERVICE so the service comes back after the swap. It is a
@@ -145,6 +169,20 @@ begin
         copy would bake %SystemRoot% into the machine PATH permanently. }
       Exec(ExpandConstant('{app}\cdrive.exe'), 'tools path --register', '',
            SW_HIDE, ewWaitUntilTerminated, ResultCode);
+    end;
+
+    { Register the service, then verify two separate things: that the command succeeded, and that
+      a service actually exists afterwards. A non-zero exit is the obvious failure; a zero exit
+      with nothing registered is worse, because it looks like success. }
+    if WizardIsTaskSelected('service') then
+    begin
+      if not Exec(ExpandConstant('{app}\cdrive.exe'), 'service install', '',
+                  SW_HIDE, ewWaitUntilTerminated, ResultCode) then
+        ReportServiceFailure('CloudDrive could not start its own command-line tool to register the service.')
+      else if ResultCode <> 0 then
+        ReportServiceFailure(Format('Registering the CloudDrive service failed (exit code %d).', [ResultCode]))
+      else if not ServiceExists then
+        ReportServiceFailure('Setup reported success but no CloudDrive service was registered.');
     end;
 
     if RestartServiceAfterInstall then
