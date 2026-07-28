@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Deliberately 'net10.0-windows' with no OS version. Core is what the Windows service and the CLI
+    are built on, and those have to run on Server 2016 and on Server Core. Pinning an OS version
+    here would pull in the Windows 10 1709+ API projection (cfapi and friends) and let a
+    Server-2016-fatal call compile. Anything needing a newer OS lives in CloudDrive.CloudFiles.
+
+    The bare -windows TFM still gives us the registry, DPAPI, ACLs and ServiceController from the
+    targeting pack, so none of those need a PackageReference.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <RootNamespace>CloudDrive.Core</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!--
+      DPAPI. The only Windows API the targeting pack does not carry: it lives in an out-of-band
+      package because it has no cross-platform equivalent. Registry, ACLs and ServiceController all
+      come from net10.0-windows itself and need no reference.
+    -->
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.0" />
+    <PackageReference Include="System.ServiceProcess.ServiceController" Version="10.0.0" />
+  </ItemGroup>
+
+</Project>

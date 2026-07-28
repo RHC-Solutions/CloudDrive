@@ -1,0 +1,32 @@
+<Project>
+
+  <!--
+    Shared across every project. Version, branding and analysis settings live here so a release
+    bumps one number instead of eight, and so a new project cannot quietly opt out of nullability
+    or the platform-compatibility analyzer.
+  -->
+  <PropertyGroup>
+    <Version>1.0.0</Version>
+    <Product>CloudDrive</Product>
+    <Company>RHC Solutions</Company>
+    <Authors>RHC Solutions</Authors>
+    <Copyright>© RHC Solutions. https://rhcsolutions.com/</Copyright>
+    <PackageProjectUrl>https://rhcsolutions.com/</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/RHC-Solutions/CloudDrive</RepositoryUrl>
+
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <InvariantGlobalization>true</InvariantGlobalization>
+
+    <!--
+      CA1416 (platform compatibility) is the analyzer that catches calling a Windows-10-1709 API on
+      a build that claims to support Server 2016. Given that CloudDrive deliberately targets a range
+      spanning both, it is an error rather than a warning.
+    -->
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <AnalysisLevel>latest</AnalysisLevel>
+    <WarningsAsErrors>CA1416;CS8600;CS8602;CS8603;CS8618</WarningsAsErrors>
+  </PropertyGroup>
+
+</Project>

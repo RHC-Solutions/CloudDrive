@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The one project that needs a Windows-10-1709 floor, because it P/Invokes the Cloud Files API
+    (cldapi.dll). Nothing else references it, which is what lets the service and the CLI keep
+    running on Server 2016 where that DLL does not exist.
+
+    SupportedOSPlatformVersion is 17763 rather than 19041 so the platform-compatibility analyser
+    holds the code to the real minimum, not to whatever SDK projection happens to be in use.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <SupportedOSPlatformVersion>10.0.17763.0</SupportedOSPlatformVersion>
+    <RootNamespace>CloudDrive.CloudFiles</RootNamespace>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <!-- 'gen*' only exists when EmitCompilerGeneratedFiles is turned on to inspect CsWin32's output;
+       exclude it so it never double-compiles with the live source generator. -->
+  <ItemGroup>
+    <Compile Remove="gen*\**\*.cs" />
+    <None Remove="gen*\**\*.*" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\CloudDrive.Core\CloudDrive.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="AWSSDK.S3" Version="4.0.101.5" />
+    <PackageReference Include="SSH.NET" Version="2025.1.0" />
+    <PackageReference Include="FluentFTP" Version="54.2.0" />
+    <PackageReference Include="Microsoft.Windows.CsWin32" Version="0.3.183">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+</Project>

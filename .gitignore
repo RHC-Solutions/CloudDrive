@@ -1,0 +1,24 @@
+bin/
+obj/
+.vs/
+*.user
+*.suo
+
+# Vendor binaries are fetched by scripts/fetch-tools.ps1, never committed. They are large, they are
+# not ours to redistribute in source control, and ToolManager verifies them against vendor checksums
+# at download time — a committed copy would bypass that.
+third_party/**/*.exe
+third_party/**/*.msi
+third_party/**/*.zip
+tools/**/*.exe
+tools/**/*.msi
+tools/**/*.zip
+
+installer/output/
+
+# Emitted only when EmitCompilerGeneratedFiles is turned on to inspect CsWin32 output.
+src/**/gen*/
+
+# Local OAuth client ids and any developer overrides.
+appsettings.Development.json
+*.local.json

@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Contracts only, shared by the service, the tray app and the CLI. Same OS floor as Core. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <RootNamespace>CloudDrive.Ipc</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\CloudDrive.Core\CloudDrive.Core.csproj" />
+  </ItemGroup>
+
+</Project>

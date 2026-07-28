@@ -1,0 +1,12 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/CloudDrive.App/CloudDrive.App.csproj" />
+    <Project Path="src/CloudDrive.Cli/CloudDrive.Cli.csproj" />
+    <Project Path="src/CloudDrive.CloudFiles/CloudDrive.CloudFiles.csproj" />
+    <Project Path="src/CloudDrive.Core/CloudDrive.Core.csproj" />
+    <Project Path="src/CloudDrive.Ipc/CloudDrive.Ipc.csproj" />
+    <Project Path="src/CloudDrive.Notifications/CloudDrive.Notifications.csproj" />
+    <Project Path="src/CloudDrive.Service/CloudDrive.Service.csproj" />
+    <Project Path="src/CloudDrive.Tests/CloudDrive.Tests.csproj" />
+  </Folder>
+</Solution>

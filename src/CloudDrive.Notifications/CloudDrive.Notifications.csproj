@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <RootNamespace>CloudDrive.Notifications</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\CloudDrive.Core\CloudDrive.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      MailKit rather than System.Net.Mail.SmtpClient, which Microsoft has marked obsolete for new
+      development: it cannot do modern STARTTLS negotiation reliably and has no OAuth support. Alerts
+      are the thing that has to work when everything else is broken, so the mail path should not be
+      the weakest link.
+    -->
+    <PackageReference Include="MailKit" Version="4.17.0" />
+  </ItemGroup>
+
+</Project>
