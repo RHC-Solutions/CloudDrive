@@ -183,7 +183,8 @@ dotnet run   --project src\CloudDrive.App
 Then install the service, from an elevated prompt:
 
 ```powershell
-cdrive service install
+cdrive service install          # elevated. From PowerShell with a full path,
+                                # prefix it with the call operator: & "C:\...\cdrive.exe" service install
 ```
 
 ## Command line

@@ -53,7 +53,7 @@ prompt:
 
 ```powershell
 scripts\publish.ps1
-.\publish\cdrive.exe service install     # needs elevation
+& .\publish\cdrive.exe service install   # needs elevation
 .\publish\CloudDrive.exe
 ```
 
@@ -75,10 +75,9 @@ None of the unelevated gaps are failures. CloudDrive resolves its tools by absol
 
 ## Things that legitimately look like errors
 
-**`Up to date: version 1.0.0`** when you expected an update — correct, and not an error. The repository
-is public and the releases API answers anonymously, but no releases have been published yet, so there
-is nothing newer to find. Auto-update starts working with the first release that carries a
-`CloudDrive-Setup*.exe` asset; until then the updater polls, finds an empty list, and says so.
+**`Up to date: version …`** when you expected an update — correct whenever the running build is the
+newest published release, and correct for a locally built version that is *ahead* of every release,
+since nothing newer exists to find.
 
 **`GitHub returned 404 for '…'`** — the repository is not visible anonymously, which for a private
 repository is permanent: the releases API needs authentication and CloudDrive polls it without any.
@@ -90,6 +89,19 @@ made public.
 **Tools showing `INSTALLED  -`** — `scripts\fetch-tools.ps1` populates `third_party\` for the build.
 The *managed* copy under `<data dir>\tools` is separate and is filled by
 `cdrive tools install rclone`, or automatically by the service.
+
+## A PowerShell footgun worth knowing
+
+`"C:\Program Files\CloudDrive\cdrive.exe" service install` fails in PowerShell with
+*"Unexpected token 'service'"*. A quoted string is a string, not a command, so it needs the call
+operator:
+
+```powershell
+& "C:\Program Files\CloudDrive\cdrive.exe" service install
+```
+
+The same line works unchanged in Command Prompt, which is why it is easy to copy from one shell to the
+other and be confused by the result. A relative path such as `.\publish\cdrive.exe` needs no `&`.
 
 ## Diagnosing
 

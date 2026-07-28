@@ -134,7 +134,10 @@ begin
   else
     MsgBox(Message + #13#10#13#10 +
            'CloudDrive is installed, but drive mappings cannot mount until the service is running.' + #13#10 +
-           'Register it by hand from an elevated prompt:' + #13#10#13#10 +
+           'Register it by hand from an elevated prompt.' + #13#10#13#10 +
+           'PowerShell (note the leading &):' + #13#10 +
+           '    & "' + ExpandConstant('{app}') + '\cdrive.exe" service install' + #13#10#13#10 +
+           'Command Prompt:' + #13#10 +
            '    "' + ExpandConstant('{app}') + '\cdrive.exe" service install',
            mbError, MB_OK);
 end;
