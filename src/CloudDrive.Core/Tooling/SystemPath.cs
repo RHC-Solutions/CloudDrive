@@ -25,11 +25,25 @@ public static class SystemPath
     private const string EnvironmentKey =
         @"SYSTEM\CurrentControlSet\Control\Session Manager\Environment";
 
-    /// <summary>True when <paramref name="directory"/> is already on the machine PATH.</summary>
+    /// <summary>
+    /// True when <paramref name="directory"/> is already on the machine PATH.
+    ///
+    /// Returns false rather than throwing when the machine environment key cannot be read. This is
+    /// informational — it drives a "(on PATH)" label — and a process that cannot read HKLM should get
+    /// a tools listing without that detail rather than an error instead of the listing, which is what
+    /// happened before: the whole <c>tools list</c> command failed with "Requested registry access is
+    /// not allowed".
+    /// </summary>
     public static bool Contains(string directory)
     {
-        var current = ReadRaw();
-        return Split(current).Any(p => SamePath(p, directory));
+        try
+        {
+            return Split(ReadRaw()).Any(p => SamePath(p, directory));
+        }
+        catch (Exception ex) when (ex is System.Security.SecurityException or UnauthorizedAccessException)
+        {
+            return false;
+        }
     }
 
     /// <summary>
@@ -75,20 +89,46 @@ public static class SystemPath
     /// </summary>
     private static string ReadRaw()
     {
-        using var key = Registry.LocalMachine.OpenSubKey(EnvironmentKey, writable: false);
-        return key?.GetValue("Path", string.Empty, RegistryValueOptions.DoNotExpandEnvironmentNames)
-            as string ?? string.Empty;
+        try
+        {
+            using var key = Registry.LocalMachine.OpenSubKey(EnvironmentKey, writable: false);
+            return key?.GetValue("Path", string.Empty, RegistryValueOptions.DoNotExpandEnvironmentNames)
+                as string ?? string.Empty;
+        }
+        catch (System.Security.SecurityException ex)
+        {
+            // Normalised so every caller has one exception type to reason about; Contains swallows it,
+            // Add and Remove let it surface as an actionable message.
+            throw new UnauthorizedAccessException(
+                "Reading the system PATH was denied. This needs administrator rights.", ex);
+        }
     }
 
     private static void WriteRaw(string value)
     {
-        using var key = Registry.LocalMachine.OpenSubKey(EnvironmentKey, writable: true)
-            ?? throw new UnauthorizedAccessException(
-                "Editing the system PATH needs administrator rights.");
+        RegistryKey? key;
+        try
+        {
+            key = Registry.LocalMachine.OpenSubKey(EnvironmentKey, writable: true);
+        }
+        catch (System.Security.SecurityException ex)
+        {
+            // Opening HKLM for write throws SecurityException, not UnauthorizedAccessException, when
+            // the token lacks the rights. Normalising it means callers have one exception type to
+            // handle rather than discovering the second one in production.
+            throw new UnauthorizedAccessException(
+                "Editing the system PATH needs administrator rights.", ex);
+        }
 
-        // REG_EXPAND_SZ, not REG_SZ. Writing the wrong type here would stop Windows expanding the
-        // %SystemRoot% entries that were already in the value, breaking PATH for the whole machine.
-        key.SetValue("Path", value, RegistryValueKind.ExpandString);
+        if (key is null)
+            throw new UnauthorizedAccessException("Editing the system PATH needs administrator rights.");
+
+        using (key)
+        {
+            // REG_EXPAND_SZ, not REG_SZ. Writing the wrong type would stop Windows expanding the
+            // %SystemRoot% entries already in the value, breaking PATH for the whole machine.
+            key.SetValue("Path", value, RegistryValueKind.ExpandString);
+        }
     }
 
     private static IEnumerable<string> Split(string path) =>

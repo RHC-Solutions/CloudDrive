@@ -73,6 +73,12 @@ public sealed class IpcServer : IAsyncDisposable
 
     private async Task AcceptLoopAsync(CancellationToken ct)
     {
+        // A persistent failure here is a configuration problem, not a transient one, so the loop backs
+        // off and stops repeating itself. Logging every attempt at a fixed one-second interval across
+        // four listeners produced hundreds of identical lines a minute and buried everything else.
+        var consecutiveFailures = 0;
+        string? lastReported = null;
+
         while (!ct.IsCancellationRequested)
         {
             NamedPipeServerStream? pipe = null;
@@ -80,6 +86,9 @@ public sealed class IpcServer : IAsyncDisposable
             {
                 pipe = CreatePipe();
                 await pipe.WaitForConnectionAsync(ct).ConfigureAwait(false);
+
+                consecutiveFailures = 0;
+                lastReported = null;
 
                 var handling = pipe;
                 pipe = null; // ownership moves to the handler
@@ -91,9 +100,22 @@ public sealed class IpcServer : IAsyncDisposable
             }
             catch (Exception ex)
             {
-                _log?.Invoke($"IPC accept failed: {ex.Message}");
-                // Do not spin at full speed if the pipe cannot be created at all.
-                try { await Task.Delay(TimeSpan.FromSeconds(1), ct).ConfigureAwait(false); }
+                consecutiveFailures++;
+
+                // Report a new message immediately, then only on an exponential schedule, so a
+                // permanent fault is stated clearly once instead of scrolling past.
+                if (ex.Message != lastReported || IsPowerOfTwo(consecutiveFailures))
+                {
+                    lastReported = ex.Message;
+                    _log?.Invoke(
+                        $"Could not listen on \\\\.\\pipe\\{PipeName} (attempt {consecutiveFailures}): "
+                        + $"{ex.Message}");
+                }
+
+                // 1s, 2s, 4s … capped at 30s. Fast enough to recover from a race, slow enough that a
+                // permanent failure costs nothing.
+                var backoff = TimeSpan.FromSeconds(Math.Min(30, Math.Pow(2, Math.Min(5, consecutiveFailures - 1))));
+                try { await Task.Delay(backoff, ct).ConfigureAwait(false); }
                 catch (OperationCanceledException) { break; }
             }
             finally
@@ -102,6 +124,8 @@ public sealed class IpcServer : IAsyncDisposable
             }
         }
     }
+
+    private static bool IsPowerOfTwo(int value) => value > 0 && (value & (value - 1)) == 0;
 
     /// <summary>
     /// Creates a listener with the ACL applied at creation time.
@@ -116,20 +140,42 @@ public sealed class IpcServer : IAsyncDisposable
 
         // Authenticated users may connect and exchange messages. What they are allowed to *ask for*
         // is decided per operation against their token, not here.
+        //
+        // Deliberately ReadWrite and *not* CreateNewInstance. Granting CreateNewInstance broadly would
+        // let any logged-in user stand up their own instance of \\.\pipe\CloudDrive and answer other
+        // users' clients as though it were the service — classic named-pipe squatting. Clients never
+        // need that right; only the process hosting the pipe does.
         security.AddAccessRule(new PipeAccessRule(
             new SecurityIdentifier(WellKnownSidType.AuthenticatedUserSid, null),
             PipeAccessRights.ReadWrite,
             AccessControlType.Allow));
 
-        // The service itself and administrators additionally get the right to manage instances.
+        // The service itself and administrators get FullControl, which includes CreateNewInstance.
         foreach (var sid in new[] { WellKnownSidType.LocalSystemSid, WellKnownSidType.BuiltinAdministratorsSid })
         {
             security.AddAccessRule(new PipeAccessRule(
                 new SecurityIdentifier(sid, null), PipeAccessRights.FullControl, AccessControlType.Allow));
         }
 
+        // The owner of *this* process needs CreateNewInstance explicitly, and this line is a bug fix.
+        //
+        // Every additional listener beyond the first is a second instance of the same pipe name, and
+        // creating one requires CreateNewInstance on the existing pipe. In production the service runs
+        // as LocalSystem and picks that up from the ACE above — but a host running unelevated for
+        // troubleshooting matches only the Authenticated Users ACE, so its first listener succeeded
+        // and every other one was denied forever. The symptom was a service that accepted exactly one
+        // connection and then refused everything with "access is denied" three times a second.
+        if (WindowsIdentity.GetCurrent().User is { } owner)
+        {
+            security.AddAccessRule(new PipeAccessRule(
+                owner,
+                PipeAccessRights.ReadWrite | PipeAccessRights.CreateNewInstance,
+                AccessControlType.Allow));
+        }
+
         // Explicitly deny the network logon SID. A named pipe is reachable over SMB by default, and
-        // nothing here is meant to be driven from another machine.
+        // nothing here is meant to be driven from another machine. Added last; the framework
+        // canonicalises the DACL so deny entries are evaluated first.
         security.AddAccessRule(new PipeAccessRule(
             new SecurityIdentifier(WellKnownSidType.NetworkSid, null),
             PipeAccessRights.FullControl,
@@ -213,11 +259,14 @@ public sealed class IpcServer : IAsyncDisposable
         }
         catch (Exception ex) when (ex is IOException or OperationCanceledException)
         {
-            // A client that disappears mid-conversation is routine, not an error.
+            // A client that disappears mid-conversation is routine. Recorded anyway, with the type,
+            // because swallowing it silently hid a real fault: the connection was being torn down
+            // before any request was served and there was nothing in the log to say why.
+            _log?.Invoke($"IPC connection ended: {ex}");
         }
         catch (Exception ex)
         {
-            _log?.Invoke($"IPC connection failed: {ex.Message}");
+            _log?.Invoke($"IPC connection failed: {ex}");
         }
         finally
         {

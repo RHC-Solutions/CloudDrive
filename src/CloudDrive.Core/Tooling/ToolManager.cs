@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.IO.Compression;
 using System.Runtime.Versioning;
 using System.Security.Cryptography;
+using CloudDrive.Core.Platform;
 using CloudDrive.Core.Stores;
 
 namespace CloudDrive.Core.Tooling;
@@ -554,16 +555,49 @@ public sealed class ToolManager
         return applied;
     }
 
-    /// <summary>Registers the tools directory on the machine PATH. Requires elevation.</summary>
+    /// <summary>
+    /// Registers the tools directory on the machine PATH.
+    ///
+    /// Returns false rather than throwing when this process cannot write HKLM. Being unable to edit the
+    /// system PATH is a normal condition — it happens whenever the service host is run unelevated for
+    /// troubleshooting — and it stops nothing: every internal caller resolves rclone by absolute path.
+    /// PATH exists so a human can type <c>rclone</c> in a shell. Raising a stack trace for it, which is
+    /// what happened before, mislabels a cosmetic shortfall as a failure.
+    /// </summary>
     public bool RegisterOnPath()
     {
-        Directory.CreateDirectory(AppPaths.ToolsBinDir);
-        var added = SystemPath.Add(AppPaths.ToolsBinDir);
-        if (added) _log?.Invoke($"Added {AppPaths.ToolsBinDir} to the system PATH.");
-        return added;
+        if (!ProcessIdentity.CanWriteMachineStore)
+        {
+            _log?.Invoke(
+                $"Not adding {AppPaths.ToolsBinDir} to the system PATH: that needs administrator "
+                + $"rights and this process is running as {ProcessIdentity.Name}. CloudDrive itself is "
+                + "unaffected — it resolves its tools by full path.");
+            return false;
+        }
+
+        try
+        {
+            Directory.CreateDirectory(AppPaths.ToolsBinDir);
+            var added = SystemPath.Add(AppPaths.ToolsBinDir);
+            if (added) _log?.Invoke($"Added {AppPaths.ToolsBinDir} to the system PATH.");
+            return added;
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            _log?.Invoke($"Could not add the tools directory to the system PATH: {ex.Message}");
+            return false;
+        }
     }
 
-    public bool UnregisterFromPath() => SystemPath.Remove(AppPaths.ToolsBinDir);
+    public bool UnregisterFromPath()
+    {
+        try { return SystemPath.Remove(AppPaths.ToolsBinDir); }
+        catch (UnauthorizedAccessException ex)
+        {
+            _log?.Invoke($"Could not remove the tools directory from the system PATH: {ex.Message}");
+            return false;
+        }
+    }
 
     /// <summary>
     /// Reverts a tool to the newest version kept alongside the current one. The point of keeping

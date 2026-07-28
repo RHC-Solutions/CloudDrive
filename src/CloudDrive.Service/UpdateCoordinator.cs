@@ -32,6 +32,12 @@ public sealed class UpdateCoordinator(
     private DateTime _lastCheckUtc = DateTime.MinValue;
     private readonly SemaphoreSlim _gate = new(1, 1);
 
+    /// <summary>
+    /// Set once the feed has been reported unreachable, so the same unfixable message is not logged
+    /// every six hours forever. Cleared by a successful check.
+    /// </summary>
+    private bool _feedUnavailableReported;
+
     /// <summary>Raised as an update moves through its stages, so the UI can show progress.</summary>
     public event Func<UpdateEvent, Task>? Progress;
 
@@ -49,7 +55,21 @@ public sealed class UpdateCoordinator(
 
         if (IsCheckDue(settings.Updates))
         {
-            try { await CheckNowAsync(ct).ConfigureAwait(false); }
+            try
+            {
+                await CheckNowAsync(ct).ConfigureAwait(false);
+                _feedUnavailableReported = false;
+            }
+            catch (ReleaseFeedUnavailableException ex)
+            {
+                // Said once, without a stack trace. Retrying will not help and repeating it every
+                // interval would bury whatever else is in the log.
+                if (!_feedUnavailableReported)
+                {
+                    logger.LogWarning("Automatic updating is not available. {Reason}", ex.Message);
+                    _feedUnavailableReported = true;
+                }
+            }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 logger.LogWarning(ex, "The update check failed.");

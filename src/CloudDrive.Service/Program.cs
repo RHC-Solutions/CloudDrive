@@ -1,5 +1,6 @@
 using CloudDrive.Core.Platform;
 using CloudDrive.Core.Stores;
+using CloudDrive.Ipc;
 using CloudDrive.Service;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -28,22 +29,36 @@ builder.Logging.AddEventLog(settings => settings.SourceName = ServiceControl.Ser
 
 builder.Logging.SetMinimumLevel(LogLevel.Information);
 
-var host = builder.Build();
-
-// Creating the Event Log source needs administrator rights the first time. The installer does it,
-// but a developer running this from a console has not, and the resulting exception would be thrown
-// from inside the logging infrastructure with no useful message.
-try
+// Preflight before the host starts. Everything below depends on the machine store, and a failure
+// here surfaces from deep inside a BackgroundService as an unhandled exception and a stack trace —
+// which is what happened before this check existed. Reported once, in plain language, and the
+// worker's own EnsureMachineStore is left to do the actual creation.
+if (AppPaths.DescribeMachineStoreProblem() is { } problem)
 {
-    AppPaths.EnsureMachineStore();
-}
-catch (UnauthorizedAccessException)
-{
-    Console.Error.WriteLine(
-        $"CloudDrive cannot write to {AppPaths.MachineDir}. Run this elevated, or install the service "
-        + "with 'cdrive service install' from an elevated prompt.");
+    Console.Error.WriteLine(problem);
     return 1;
 }
 
+if (AppPaths.MachineDirIsRedirected)
+{
+    Console.WriteLine(
+        $"Using a redirected configuration directory: {AppPaths.MachineDir}\n"
+        + $"({AppPaths.DataDirVariable} is set. Unset it to use the real machine store.)");
+}
+
+// Prove the IPC wire format actually round-trips before opening the pipe.
+//
+// This exists because of a failure that was very hard to diagnose from its symptoms: enum values are
+// sent as names, parsing one goes through a System.Text.Json path that pulls in
+// System.Text.RegularExpressions, and when that assembly could not be loaded the service accepted
+// every connection and then dropped it with nothing useful logged. Every client reported only "the
+// connection was lost". Failing loudly here, once, beats being mysteriously unreachable.
+if (IpcSelfCheck.Describe() is { } wireProblem)
+{
+    Console.Error.WriteLine(wireProblem);
+    return 1;
+}
+
+var host = builder.Build();
 await host.RunAsync();
 return 0;

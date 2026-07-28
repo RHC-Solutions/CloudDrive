@@ -62,6 +62,13 @@ public sealed class ServiceWorker : BackgroundService
         {
             Compose();
         }
+        catch (UnauthorizedAccessException ex)
+        {
+            // Already phrased for a human by AppPaths; logging the message rather than the exception
+            // keeps a stack trace out of the Event Log for what is a configuration problem.
+            _logger.LogCritical("{Problem}", ex.Message);
+            throw;
+        }
         catch (Exception ex)
         {
             // Nothing works without composition, and a service that silently does nothing is worse

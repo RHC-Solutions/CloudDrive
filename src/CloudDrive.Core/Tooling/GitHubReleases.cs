@@ -5,6 +5,15 @@ using System.Text.Json.Serialization;
 
 namespace CloudDrive.Core.Tooling;
 
+/// <summary>
+/// The release feed cannot be read at all — the repository is absent or private.
+///
+/// A distinct type because the caller's response is different from that to a transient network
+/// failure: this one will not fix itself by retrying, and it deserves being said once plainly rather
+/// than logged as an exception on every poll.
+/// </summary>
+public sealed class ReleaseFeedUnavailableException(string message) : Exception(message);
+
 /// <summary>One published release.</summary>
 public sealed class GitHubRelease
 {
@@ -91,6 +100,22 @@ public sealed class GitHubReleases : IDisposable
             if (_cache.TryGetValue(repo, out var stale)) return stale.Releases;
             throw new HttpRequestException(
                 "GitHub's API rate limit is exhausted for this address; the update check will retry later.");
+        }
+
+        if (response.StatusCode == HttpStatusCode.NotFound)
+        {
+            // 404 from the releases endpoint means the repository is not visible to an anonymous
+            // caller — it does not exist, or it is private. A *public* repository with no releases at
+            // all answers 200 with an empty array, so this is never merely "nothing published yet".
+            //
+            // Reported as a distinct, explicable state rather than a bare HTTP failure, because the
+            // fix is a decision someone has to make: publish releases publicly, or give CloudDrive a
+            // token. Throwing a 404 stack trace every six hours explains neither.
+            throw new ReleaseFeedUnavailableException(
+                $"GitHub returned 404 for '{repo}'. Either the repository does not exist or it is "
+                + "private — the releases API needs authentication for a private repository, and "
+                + "CloudDrive polls it anonymously. Publish releases publicly to enable automatic "
+                + "updating.");
         }
 
         response.EnsureSuccessStatusCode();

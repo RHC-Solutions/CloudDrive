@@ -215,6 +215,11 @@ cdrive info                    What this machine supports
 `%LOCALAPPDATA%\CloudDrive\` holds only what is genuinely per-user: on-demand sync state, window
 geometry, and the app's own log.
 
+## Testing
+
+See [docs/TESTING.md](docs/TESTING.md) — you can run the whole thing end to end without the
+installer and without administrator rights.
+
 ## Licence
 
 [MIT](LICENSE) © [RHC Solutions](https://rhcsolutions.com/). Built on

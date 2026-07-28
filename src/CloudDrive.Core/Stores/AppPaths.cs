@@ -1,6 +1,7 @@
 using System.Runtime.Versioning;
 using System.Security.AccessControl;
 using System.Security.Principal;
+using CloudDrive.Core.Platform;
 
 namespace CloudDrive.Core.Stores;
 
@@ -26,9 +27,42 @@ public static class AppPaths
 
     // ---------------------------------------------------------------- Machine store -----------
 
+    /// <summary>
+    /// Environment variable that relocates the machine store.
+    ///
+    /// Exists so the service host can be run from a console, and tested, without elevation. The real
+    /// store is ACL'd to SYSTEM and Administrators, which is correct for production and makes an
+    /// unelevated end-to-end run impossible otherwise.
+    /// </summary>
+    public const string DataDirVariable = "CLOUDDRIVE_DATA_DIR";
+
     /// <summary>The service-owned root. ACL'd to SYSTEM and Administrators.</summary>
-    public static string MachineDir { get; } = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), ProductName);
+    public static string MachineDir { get; } = ResolveMachineDir();
+
+    /// <summary>True when the store has been redirected away from <c>%ProgramData%</c> for a test.</summary>
+    public static bool MachineDirIsRedirected { get; private set; }
+
+    private static string ResolveMachineDir()
+    {
+        var overridden = Environment.GetEnvironmentVariable(DataDirVariable);
+        if (!string.IsNullOrWhiteSpace(overridden))
+        {
+            try
+            {
+                var full = Path.GetFullPath(overridden.Trim());
+                MachineDirIsRedirected = true;
+                return full;
+            }
+            catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+            {
+                // A malformed override falls back to the real location rather than failing to start:
+                // a typo in an environment variable should not stop the service mounting anything.
+            }
+        }
+
+        return Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), ProductName);
+    }
 
     public static string AccountsFile => Path.Combine(MachineDir, "accounts.json");
 
@@ -76,22 +110,81 @@ public static class AppPaths
     // ---------------------------------------------------------------- Creation ----------------
 
     /// <summary>
-    /// Creates the machine store and locks it down. Needs elevation, so it is called by the
-    /// installer and by the service, never by the unelevated tray app.
+    /// Creates the machine store, hardening its ACL when this process is entitled to.
+    ///
+    /// <para><b>The hardening is conditional, and that is a bug fix rather than a relaxation.</b>
+    /// Restricting the directory to SYSTEM and Administrators locks out any token that does not
+    /// satisfy that ACL — including a UAC-filtered token belonging to a user who <i>is</i> in the
+    /// Administrators group. Doing it unconditionally meant an unelevated process could create the
+    /// store, harden it, and then be unable to read what it had just written, leaving behind a
+    /// directory it could neither use nor delete. So the ACL is applied only when running as SYSTEM
+    /// or genuinely elevated; otherwise the store inherits <c>%ProgramData%</c>'s permissions and the
+    /// first elevated run tightens it.</para>
     /// </summary>
+    /// <exception cref="UnauthorizedAccessException">
+    /// The store exists but this process cannot use it. Thrown with an explanation rather than
+    /// letting a bare access-denied surface from somewhere deeper.
+    /// </exception>
     public static void EnsureMachineStore()
     {
         var existed = Directory.Exists(MachineDir);
-        Directory.CreateDirectory(MachineDir);
-        Directory.CreateDirectory(MachineLogsDir);
-        Directory.CreateDirectory(SpoolDir);
-        Directory.CreateDirectory(ToolsDir);
-        Directory.CreateDirectory(ToolsBinDir);
 
-        // Only on first creation. Re-applying on every start would stamp on a deliberate ACL change
-        // an administrator made, and would cost a security-descriptor write on every service boot.
-        if (!existed) TryRestrictToAdministrators(MachineDir);
+        try
+        {
+            Directory.CreateDirectory(MachineDir);
+            Directory.CreateDirectory(MachineLogsDir);
+            Directory.CreateDirectory(SpoolDir);
+            Directory.CreateDirectory(ToolsDir);
+            Directory.CreateDirectory(ToolsBinDir);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            throw new UnauthorizedAccessException(DescribeAccessFailure(), ex);
+        }
+
+        // Only on first creation, and only when this process is entitled. Re-applying on every start
+        // would also stamp on a deliberate ACL change an administrator had made.
+        if (!existed && ProcessIdentity.CanWriteMachineStore && !MachineDirIsRedirected)
+            TryRestrictToAdministrators(MachineDir);
     }
+
+    /// <summary>
+    /// Whether the machine store is usable by this process, and why not when it is not. Used as a
+    /// preflight so a failure is reported once, clearly, instead of as an access-denied from
+    /// whichever store happened to be touched first.
+    /// </summary>
+    public static string? DescribeMachineStoreProblem()
+    {
+        try
+        {
+            if (!Directory.Exists(MachineDir)) return null; // it will be created
+
+            // Existence is not access. A probe write is the only reliable check, because the ACL may
+            // grant traversal but not creation.
+            var probe = Path.Combine(MachineDir, ".access-probe");
+            File.WriteAllBytes(probe, []);
+            File.Delete(probe);
+            return null;
+        }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
+        {
+            return DescribeAccessFailure();
+        }
+    }
+
+    private static string DescribeAccessFailure() =>
+        $"""
+         CloudDrive cannot write to its configuration directory:
+           {MachineDir}
+
+         That directory is restricted to SYSTEM and Administrators, and this process is running as
+         {ProcessIdentity.Name}{(ProcessIdentity.IsElevated ? " (elevated)" : " (not elevated)")}.
+
+         The Windows service runs as LocalSystem and is unaffected. To run the service host directly
+         for troubleshooting, either start an elevated prompt, or point it at a scratch directory:
+
+           $env:{DataDirVariable} = "$env:LOCALAPPDATA\CloudDrive-test"
+         """;
 
     public static void EnsureUserStore()
     {
