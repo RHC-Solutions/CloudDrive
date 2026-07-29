@@ -124,12 +124,38 @@ public sealed class OnDemandSyncManager : IDisposable
     /// Populates the local namespace with placeholders for every remote file (under the mapping's
     /// optional sub-path). Existing entries are skipped, so it is safe to re-run.
     /// </summary>
+    /// <summary>
+    /// Raised while the remote is being enumerated, so a caller can show that a long first scan is
+    /// making progress rather than leaving the mapping on "Mounting..." indefinitely.
+    /// </summary>
+    public event Action<string>? Progress;
+
     public async Task PopulateAsync(CancellationToken ct = default)
     {
         var byDirectory = new Dictionary<string, List<PlaceholderInfo>>(StringComparer.OrdinalIgnoreCase);
 
+        // Progress is reported while the remote is enumerated, not only at the end.
+        //
+        // The whole listing is walked before a single placeholder appears, and on a real bucket or a
+        // Storage Box used for backups that takes minutes. Reporting nothing meant the mapping sat on
+        // "Mounting..." with no output at all, which is indistinguishable from a hang -- so the honest
+        // reading of a working mount was "on-demand is not mounting".
+        var listed = 0;
+        var lastReport = DateTime.UtcNow;
+        var started = lastReport;
+
         await foreach (var item in _remote.ListAsync(_prefix, ct).ConfigureAwait(false))
         {
+            listed++;
+
+            // Time-based rather than every N items: a slow remote dribbling out results should still
+            // report, and a fast one should not flood the log.
+            if (DateTime.UtcNow - lastReport > TimeSpan.FromSeconds(5))
+            {
+                lastReport = DateTime.UtcNow;
+                Progress?.Invoke($"Indexing {SyncRootPath}: {listed:N0} item(s) so far…");
+            }
+
             if (item.Key.EndsWith('/')) continue; // directory marker
             if (!TrySplitKey(item.Key, out var relativeDir, out var fileName)) continue;
 
@@ -140,6 +166,14 @@ public sealed class OnDemandSyncManager : IDisposable
             if (!byDirectory.TryGetValue(relativeDir, out var list))
                 byDirectory[relativeDir] = list = new List<PlaceholderInfo>();
             list.Add(new PlaceholderInfo(fileName, item.Key, item.Size, item.LastModifiedUtc));
+        }
+
+        var elapsed = DateTime.UtcNow - started;
+        if (elapsed > TimeSpan.FromSeconds(5))
+        {
+            _log?.Invoke(
+                $"Listed {listed:N0} remote item(s) in {elapsed.TotalSeconds:N0}s; "
+                + $"creating placeholders in {byDirectory.Count:N0} folder(s).");
         }
 
         var created = 0;

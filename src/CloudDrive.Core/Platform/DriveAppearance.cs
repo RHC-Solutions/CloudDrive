@@ -37,12 +37,22 @@ public static class DriveAppearance
         var letter = NormalizeLetter(driveLetter);
         if (letter is null || string.IsNullOrWhiteSpace(iconPath)) return;
 
-        using var icons = Registry.LocalMachine.CreateSubKey($@"{DriveIconsKey}\{letter}\DefaultIcon");
+        // HKLM when this process can write it, HKCU otherwise, because Explorer honours both.
+        //
+        // This used to write HKLM unconditionally, which a standard user cannot do -- so every mount in
+        // a user's own session logged "Drive presentation could not be applied: Access to the registry
+        // key ... is denied" and silently got no icon. HKCU is in fact the more correct target for a
+        // session mount: the drive belongs to that user, so its branding should too. A serviced mount
+        // runs as LocalSystem, where HKCU is SYSTEM's own hive and would brand the drive for nobody, so
+        // that case still needs HKLM and has the rights for it.
+        var hive = ProcessIdentity.CanWriteMachineStore ? Registry.LocalMachine : Registry.CurrentUser;
+
+        using var icons = hive.CreateSubKey($@"{DriveIconsKey}\{letter}\DefaultIcon");
         icons?.SetValue(null, iconPath, RegistryValueKind.String);
 
         if (!string.IsNullOrWhiteSpace(label))
         {
-            using var labelKey = Registry.LocalMachine.CreateSubKey($@"{DriveIconsKey}\{letter}\DefaultLabel");
+            using var labelKey = hive.CreateSubKey($@"{DriveIconsKey}\{letter}\DefaultLabel");
             labelKey?.SetValue(null, label, RegistryValueKind.String);
         }
     }
@@ -56,14 +66,19 @@ public static class DriveAppearance
         var letter = NormalizeLetter(driveLetter);
         if (letter is null) return;
 
-        try
+        // Both hives, because which one SetDriveIcon used depends on the privileges it had at the time,
+        // and a leftover entry would brand whatever drive next takes the letter.
+        foreach (var hive in new[] { Registry.CurrentUser, Registry.LocalMachine })
         {
-            using var icons = Registry.LocalMachine.OpenSubKey(DriveIconsKey, writable: true);
-            icons?.DeleteSubKeyTree(letter, throwOnMissingSubKey: false);
-        }
-        catch (UnauthorizedAccessException)
-        {
-            // Unelevated caller. Cosmetic, so not worth failing an unmount over.
+            try
+            {
+                using var icons = hive.OpenSubKey(DriveIconsKey, writable: true);
+                icons?.DeleteSubKeyTree(letter, throwOnMissingSubKey: false);
+            }
+            catch (Exception ex) when (ex is UnauthorizedAccessException or System.Security.SecurityException)
+            {
+                // No rights to this hive. Cosmetic, so not worth failing an unmount over.
+            }
         }
     }
 

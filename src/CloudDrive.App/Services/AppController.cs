@@ -459,6 +459,14 @@ public sealed class AppController : IAsyncDisposable
             row.Mapping, released.Account, released.Credentials,
             line => _log.Raw($"[{row.Name}] {line}"));
 
+        // The first scan of a large remote takes minutes. Without this the row shows "Mounting..." with
+        // nothing else, which reads as broken rather than busy.
+        manager.Progress += message => OnUi(() =>
+        {
+            row.StatusMessage = message;
+            _log.Info($"[{row.Name}] {message}");
+        });
+
         try
         {
             await manager.EnableAsync(ct).ConfigureAwait(false);
@@ -538,6 +546,15 @@ public sealed class AppController : IAsyncDisposable
     public async Task DeleteMappingAsync(Guid mappingId, CancellationToken ct = default)
     {
         DisableOnDemand(mappingId);
+
+        // Take the Explorer sidebar entry down too.
+        //
+        // Registering one is half a job: OnDemandSyncManager added "CloudDrive - <name>" to the
+        // navigation pane and nothing ever removed it, so deleting a mapping left a permanent entry
+        // pointing at a folder that no longer syncs. RemoveNavPaneEntry existed and was never called.
+        try { OnDemandSyncManager.RemoveNavPaneEntry(mappingId); }
+        catch (Exception ex) { _log.Warn($"Removing the Explorer entry failed: {ex.Message}"); }
+
         RequireClient();
         await _client!.CallAsync(IpcOperation.DeleteMapping, new DeleteRequest { Id = mappingId }, ct)
             .ConfigureAwait(false);
