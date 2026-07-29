@@ -59,9 +59,10 @@
                 </StackPanel>
 
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                    <!-- Not gated on IsAdministrator: a standard user may create a mapping hosted in
+                         their own session, and disabling this made that impossible to reach. -->
                     <Button Content="+ Add mapping" Click="OnAddMapping"
-                            Style="{StaticResource CD.Button.Accent}" Margin="0,0,8,0"
-                            IsEnabled="{Binding IsAdministrator}"/>
+                            Style="{StaticResource CD.Button.Accent}" Margin="0,0,8,0"/>
                     <Button Content="Accounts" Click="OnAccounts" Margin="0,0,8,0"/>
                     <Button Content="Edit" Click="OnEditMapping" Margin="0,0,8,0"
                             IsEnabled="{Binding SelectedMapping, Converter={StaticResource NullToBool}}"/>

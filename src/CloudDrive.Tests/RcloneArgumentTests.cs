@@ -27,8 +27,16 @@ public class RcloneArgumentTests
         // This is the whole "like Google Drive does it" change: --network-mode is what puts a mount
         // under "Network locations", and not passing it is what makes it a disk.
         Assert.DoesNotContain("--network-mode", args);
-        Assert.Contains("--file-system-name", args);
-        Assert.Contains("NTFS", args);
+
+        // The filesystem name goes through -o, because FileSystemName is a WinFsp option and rclone has
+        // no flag of its own for it. This assertion previously expected "--file-system-name", which is
+        // what the builder emitted and what rclone rejects — the test and the code shared one wrong
+        // assumption, so it passed while every drive mount failed. RcloneFlagValidityTests now checks
+        // the emitted flags against rclone's own flag list, which is the check that catches this class
+        // of mistake rather than restating it.
+        Assert.Contains("-o", args);
+        Assert.Contains("FileSystemName=NTFS", args);
+        Assert.DoesNotContain("--file-system-name", args);
     }
 
     [Fact]

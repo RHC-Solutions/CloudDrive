@@ -9,7 +9,7 @@ read-only inputs to this one; neither is modified by it.
 
 ## Download
 
-### [⬇ CloudDrive-Setup.exe — 1.0.5](https://github.com/RHC-Solutions/CloudDrive/releases/download/v1.0.5/CloudDrive-Setup.exe)
+### [⬇ CloudDrive-Setup.exe — 1.0.7](https://github.com/RHC-Solutions/CloudDrive/releases/download/v1.0.7/CloudDrive-Setup.exe)
 
 78 MB · Windows 10 1607+, Windows 11, Windows Server 2016–2025 · x64 · self-contained, no .NET needed
 &nbsp;·&nbsp; [All releases](https://github.com/RHC-Solutions/CloudDrive/releases)
@@ -17,14 +17,14 @@ read-only inputs to this one; neither is modified by it.
 SHA-256, to check before running an unsigned installer:
 
 ```
-c0b6215f40e06c77dbfb0628f0a3c85b3a12d883997d27c4a4ed3caa72a3edd5
+602cfb3547446611dbc935baaf72ea3cb9f1ba3cf79ac5c75acd2a0ee383c72f
 ```
 
 ```powershell
 (Get-FileHash .\CloudDrive-Setup.exe -Algorithm SHA256).Hash
 ```
 
-> **1.0.5 is a prerelease.** The link above points at the tag rather than
+> **1.0.7 is a prerelease.** The link above points at the tag rather than
 > `releases/latest/download/…`, because GitHub's *latest* excludes prereleases and that shortcut
 > currently 404s. It starts working — and this link can become permanent — with the first stable
 > release.

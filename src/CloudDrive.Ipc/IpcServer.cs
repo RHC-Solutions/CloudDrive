@@ -22,15 +22,23 @@ public sealed record IpcRequest(IpcOperation Operation, JsonElement? Payload, Ip
     public T? Body<T>() => IpcJson.Deserialize<T>(Payload);
 
     /// <summary>
-    /// Throws unless the caller is an administrator. Every configuration change goes through this:
-    /// the mappings the service mounts name arbitrary mount points and remote paths, so being able
-    /// to edit them is equivalent to controlling what the LocalSystem service does.
+    /// Throws unless the caller is an administrator.
+    ///
+    /// <para>This now guards only what is genuinely machine-wide: settings, notification targets, tool
+    /// installation, updates, and mappings hosted by the LocalSystem service. It used to guard every
+    /// write, which made CloudDrive unusable without elevation; accounts and session-hosted mappings are
+    /// authorised by ownership instead.</para>
     /// </summary>
-    public void RequireAdministrator()
+    /// <param name="what">
+    /// What is being changed, so the message says which machine-wide thing needs the rights rather than
+    /// implying that all configuration does.
+    /// </param>
+    public void RequireAdministrator(string what = "This setting")
     {
         if (!Caller.IsAdministrator)
             throw new UnauthorizedAccessException(
-                "Changing CloudDrive's configuration requires administrator rights.");
+                $"{what} applies to the whole machine, so changing it needs administrator rights. "
+                + "Accounts and mappings you own do not.");
     }
 }
 

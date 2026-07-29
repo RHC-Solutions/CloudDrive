@@ -97,8 +97,13 @@ public static class RcloneArguments
         // third-party software gate features — the Security tab, alternate data streams, long-path
         // handling — on the filesystem name, and an unrecognised one makes a drive that looks local
         // behave in ways a local drive never would.
-        args.Add("--file-system-name");
-        args.Add("NTFS");
+        //
+        // This goes through -o, not a flag of its own. FileSystemName is a WinFsp mount option, and
+        // rclone forwards -o/--option through to WinFsp verbatim. There is no --file-system-name flag:
+        // passing one made rclone exit immediately with "unknown flag", so every drive-letter mount
+        // failed with "rclone exited unexpectedly" and no other explanation.
+        args.Add("-o");
+        args.Add("FileSystemName=NTFS");
     }
 
     /// <summary>

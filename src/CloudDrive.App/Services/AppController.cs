@@ -184,9 +184,12 @@ public sealed class AppController : IAsyncDisposable
         var warnings = new List<string>(_snapshot.Warnings);
         if (!IsAdministrator)
         {
+            // Not "read-only", which is what this used to claim and is no longer true: accounts and
+            // mappings you own are yours to manage. Only the machine-wide pieces need elevation.
             warnings.Add(
-                "You are signed in as a standard user, so CloudDrive is read-only here. "
-                + "Configuration changes need administrator rights.");
+                "You are signed in as a standard user. Accounts and mappings you create are yours to "
+                + "manage; hosting a mapping in the machine-wide service, and changing machine "
+                + "settings, needs administrator rights.");
         }
         // Everything below touches WPF-bound state, so it goes back to the UI thread. SyncMappingList
         // mutates an ObservableCollection a ListView is bound to, which is illegal off-thread.
@@ -405,9 +408,15 @@ public sealed class AppController : IAsyncDisposable
             if (row is null) return;
             row.State = e.State;
             row.StatusMessage = e.Message;
-            if (e.Message is not null) AppendLog($"[{row.Name}] {e.Message}");
+            if (e.Message is not null) _log.Info($"[{row.Name}] {e.Message}");
         });
-        manager.LogReceived += (_, e) => OnUi(() => AppendLog(e.Line));
+        // Written to the log FILE, not just the in-window pane.
+        //
+        // AppendLog only fills the UI list, so rclone's own output vanished when the window closed --
+        // and rclone's output is the only thing that explains a failed mount. A drive mount died with
+        // "rclone exited unexpectedly (code 2)" and the log file held nothing at all, because the line
+        // that said "unknown flag: --file-system-name" was never persisted anywhere.
+        manager.LogReceived += (_, e) => _log.Info(e.Line);
 
         return manager;
     }

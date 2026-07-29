@@ -236,7 +236,7 @@ public sealed class IpcDispatcher(
 
     private async Task<object?> RemountAllAsync(IpcRequest request, CancellationToken ct)
     {
-        request.RequireAdministrator();
+        request.RequireAdministrator("Remounting every mapping");
         await reconciler.UnmountAllAsync(ct).ConfigureAwait(false);
         await reconciler.ReconcileAsync(ct).ConfigureAwait(false);
         return null;
@@ -355,7 +355,7 @@ public sealed class IpcDispatcher(
 
     private async Task<object?> SaveSettingsAsync(IpcRequest request)
     {
-        request.RequireAdministrator();
+        request.RequireAdministrator("This setting");
         var settings = request.Body<AppSettings>() ?? throw new InvalidOperationException("No settings supplied.");
         config.SaveSettings(settings);
         await NotifyChangedAsync("Settings saved.").ConfigureAwait(false);
@@ -412,7 +412,7 @@ public sealed class IpcDispatcher(
 
     private async Task<object?> SaveNotificationTargetAsync(IpcRequest request)
     {
-        request.RequireAdministrator();
+        request.RequireAdministrator("An alert destination");
         var body = request.Body<NotificationTargetRequest>()
                    ?? throw new InvalidOperationException("No target supplied.");
 
@@ -440,7 +440,7 @@ public sealed class IpcDispatcher(
 
     private async Task<object?> DeleteNotificationTargetAsync(IpcRequest request)
     {
-        request.RequireAdministrator();
+        request.RequireAdministrator("An alert destination");
         var body = request.Body<DeleteRequest>() ?? throw new InvalidOperationException("No target specified.");
 
         config.MutateSettings(settings => settings.Notifications.Targets.RemoveAll(t => t.Id == body.Id));
@@ -452,7 +452,7 @@ public sealed class IpcDispatcher(
 
     private async Task<object?> SendTestAlertAsync(IpcRequest request, CancellationToken ct)
     {
-        request.RequireAdministrator();
+        request.RequireAdministrator("Sending a test alert");
         var body = request.Body<NotificationTargetRequest>()
                    ?? throw new InvalidOperationException("No target supplied.");
 
@@ -469,14 +469,14 @@ public sealed class IpcDispatcher(
 
     private async Task<object?> InstallUpdateAsync(IpcRequest request, CancellationToken ct)
     {
-        request.RequireAdministrator();
+        request.RequireAdministrator("Installing an update");
         await updates.InstallNowAsync(ct).ConfigureAwait(false);
         return null;
     }
 
     private async Task<object?> SkipUpdateAsync(IpcRequest request)
     {
-        request.RequireAdministrator();
+        request.RequireAdministrator("Skipping a release");
         var version = request.Body<string>();
         config.MutateSettings(settings => settings.Updates.SkippedVersion = version);
         await NotifyChangedAsync($"Release {version} will not be offered again.").ConfigureAwait(false);
@@ -485,7 +485,7 @@ public sealed class IpcDispatcher(
 
     private async Task<object?> CheckToolUpdatesAsync(IpcRequest request, CancellationToken ct)
     {
-        request.RequireAdministrator();
+        request.RequireAdministrator("Checking tools for updates");
         var available = await tools.CheckForUpdatesAsync(ct).ConfigureAwait(false);
         return available.Select(u => new ToolInfo
         {
@@ -500,7 +500,7 @@ public sealed class IpcDispatcher(
 
     private async Task<object?> InstallToolAsync(IpcRequest request, CancellationToken ct)
     {
-        request.RequireAdministrator();
+        request.RequireAdministrator("Installing a tool");
         var toolId = request.Body<string>() ?? throw new InvalidOperationException("No tool specified.");
 
         var available = await tools.CheckForUpdatesAsync(ct).ConfigureAwait(false);
@@ -520,7 +520,7 @@ public sealed class IpcDispatcher(
 
     private object? RollbackTool(IpcRequest request)
     {
-        request.RequireAdministrator();
+        request.RequireAdministrator("Rolling a tool back");
         var toolId = request.Body<string>() ?? throw new InvalidOperationException("No tool specified.");
         if (!tools.Rollback(toolId))
             throw new InvalidOperationException("There is no previous version to roll back to.");

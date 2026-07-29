@@ -122,8 +122,6 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
     private void EditMapping(Mapping? existing)
     {
-        if (!Guard()) return;
-
         if (_controller.Accounts.Count == 0)
         {
             var answer = MessageBox.Show(
@@ -140,7 +138,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private async void OnDeleteMapping(object sender, RoutedEventArgs e)
     {
         var row = RowFor(sender) ?? SelectedMapping;
-        if (row is null || !Guard()) return;
+        if (row is null) return;
 
         var answer = MessageBox.Show(
             $"Delete the mapping '{row.Name}'?\n\nThis unmounts it. Nothing on the remote storage is touched.",
@@ -157,7 +155,6 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
     private void OnAccounts(object sender, RoutedEventArgs e)
     {
-        if (!Guard()) return;
         var dialog = new AccountsWindow(_controller) { Owner = this };
         dialog.ShowDialog();
         _ = _controller.RefreshAsync();
@@ -270,17 +267,18 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private static MappingViewModel? RowFor(object sender) =>
         (sender as FrameworkElement)?.DataContext as MappingViewModel;
 
-    /// <summary>Blocks a configuration change by a standard user, with an explanation.</summary>
-    private bool Guard()
-    {
-        if (_controller.IsAdministrator) return true;
-
-        MessageBox.Show(
-            "Changing CloudDrive's configuration needs administrator rights, because these settings "
-            + "control what the machine-wide service mounts.",
-            "CloudDrive", MessageBoxButton.OK, MessageBoxImage.Information);
-        return false;
-    }
+    // There is deliberately no client-side administrator gate here.
+    //
+    // There used to be one, and it silently undid the whole point of per-object authorisation: the
+    // service was taught that a standard user may manage their own accounts and session-hosted
+    // mappings, while this window went on refusing every one of those actions before a request was
+    // ever sent. The user saw "needs administrator rights" for something the service would have
+    // allowed.
+    //
+    // Duplicating an authorisation policy in the client is what let the two drift apart. The service
+    // is the only place that can decide -- it holds the caller's token and the object being changed --
+    // and it now returns a specific, actionable message. So the UI attempts the action and surfaces
+    // whatever comes back.
 
     private static void Fail(string title, Exception ex) =>
         MessageBox.Show($"{title}.\n\n{ex.Message}", "CloudDrive",
