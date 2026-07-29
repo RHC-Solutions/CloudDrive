@@ -35,6 +35,16 @@ public partial class App : Application
             return;
         }
 
+        // The elevated half of "Install now" in the About window. A standard user cannot ask the
+        // service to replace machine-wide files, so the app relaunches itself with this switch and the
+        // elevated instance makes the request.
+        if (e.Args.Contains("--install-update", StringComparer.OrdinalIgnoreCase))
+        {
+            await RunUpdateInstallAsync().ConfigureAwait(true);
+            Shutdown();
+            return;
+        }
+
         // Loads every window and exits with the number that failed. Run by the installer build, because
         // XAML faults appear at load time and a compiling build says nothing about them.
         if (e.Args.Contains("--selftest", StringComparer.OrdinalIgnoreCase))
@@ -84,6 +94,38 @@ public partial class App : Application
         {
             await _controller.LoadLogTailAsync().ConfigureAwait(true);
             await _controller.AutoMountAsync().ConfigureAwait(true);
+        }
+    }
+
+    /// <summary>
+    /// Asks the service to apply the pending update, from an elevated process.
+    ///
+    /// Runs without a main window: this instance exists only to carry the elevated request, and the
+    /// service restarts the tray app itself once the installer has finished.
+    /// </summary>
+    private static async Task RunUpdateInstallAsync()
+    {
+        var controller = new AppController();
+        try
+        {
+            var failure = await controller.ConnectAsync().ConfigureAwait(true);
+            if (failure is not null)
+            {
+                MessageBox.Show($"CloudDrive could not reach its service to install the update.\n\n{failure}",
+                    "CloudDrive", MessageBoxButton.OK, MessageBoxImage.Error);
+                return;
+            }
+
+            await controller.InstallUpdateAsync().ConfigureAwait(true);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"Installing the update failed.\n\n{ex.Message}",
+                "CloudDrive", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+        finally
+        {
+            await controller.DisposeAsync().ConfigureAwait(true);
         }
     }
 

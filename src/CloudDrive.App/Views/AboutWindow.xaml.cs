@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Runtime.Versioning;
 using System.Windows;
 using CloudDrive.App.Services;
+using CloudDrive.Core.Platform;
 using CloudDrive.Core.Tooling;
 using CloudDrive.Ipc;
 
@@ -124,31 +125,59 @@ public partial class AboutWindow : Window
             ? $"Version {result.AvailableVersion} is downloaded and waiting{size}. {reason}"
             : $"Version {result.AvailableVersion} is available{size}.";
 
-        // Only offer the button to someone who can act on it; installing replaces machine-wide files.
-        InstallUpdateButton.Visibility = _controller.IsAdministrator ? Visibility.Visible : Visibility.Collapsed;
+        // Shown to everyone, including a standard user.
+        //
+        // It used to be hidden unless the caller was an administrator, which left a standard user told
+        // that an update was ready and given no way to apply it. Hiding the control does not remove the
+        // need for elevation, it just removes the explanation -- and the update installs on its own once
+        // the machine is idle regardless, so withholding the button only takes away the choice of when.
+        // A standard user gets a UAC prompt instead.
+        InstallUpdateButton.Visibility = Visibility.Visible;
+        InstallUpdateButton.Content = _controller.IsAdministrator ? "Install now" : "Install now…";
+
         ReleaseNotesButton.Visibility = string.IsNullOrWhiteSpace(result.ReleaseUrl)
             ? Visibility.Collapsed
             : Visibility.Visible;
-
-        if (!_controller.IsAdministrator)
-        {
-            UpdateStatusText.Text += " Installing it needs administrator rights.";
-        }
     }
 
     private async void OnInstallUpdate(object sender, RoutedEventArgs e)
     {
+        var elevationNote = _controller.IsAdministrator
+            ? string.Empty
+            : "\n\nWindows will ask for administrator approval, because CloudDrive is installed for the "
+              + "whole machine.";
+
         if (MessageBox.Show(
                 $"Install version {_pending?.AvailableVersion} now?\n\n"
-                + "Every mounted drive is unmounted while CloudDrive is replaced, then remounted.",
+                + "Every mounted drive is unmounted while CloudDrive is replaced, then remounted."
+                + elevationNote,
                 "CloudDrive", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes)
         {
             return;
         }
 
         InstallUpdateButton.IsEnabled = false;
-        UpdateStatusText.Text = "Installing… CloudDrive will restart.";
 
+        // A standard user cannot ask the service to install -- the service runs as LocalSystem and
+        // replacing machine-wide files is exactly what elevation is for -- so the app relaunches itself
+        // elevated to make the request, the same way installing the service works.
+        if (!_controller.IsAdministrator)
+        {
+            UpdateStatusText.Text = "Waiting for administrator approval…";
+            if (ServiceControl.RelaunchElevated("--install-update"))
+            {
+                UpdateStatusText.Text = "Installing… CloudDrive will restart.";
+                Close();
+            }
+            else
+            {
+                UpdateStatusText.Text = "Administrator approval was declined, so nothing was installed.";
+                InstallUpdateButton.IsEnabled = true;
+            }
+            return;
+        }
+
+        UpdateStatusText.Text = "Installing… CloudDrive will restart.";
         try
         {
             await _controller.InstallUpdateAsync();
